@@ -1,6 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  Alert,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 
 export default function SellerProfile({ navigation }) {
@@ -20,169 +26,269 @@ export default function SellerProfile({ navigation }) {
       const email = await AsyncStorage.getItem("email");
       const address = await AsyncStorage.getItem("address");
       const phone = await AsyncStorage.getItem("phone");
-      const storeName = await AsyncStorage.getItem("storeName");
-      const totalProducts = await AsyncStorage.getItem("totalProducts");
-      const rating = await AsyncStorage.getItem("rating");
+      const storeName = await AsyncStorage.getItem("storeName") || "My Store";
+      const totalProducts = await AsyncStorage.getItem("totalProducts") || "0";
+      const rating = await AsyncStorage.getItem("rating") || "4.8";
 
       setSeller({
-        name,
-        email,
-        address,
-        phone,
+        name: name || "Seller Name",
+        email: email || "seller@example.com",
+        address: address || "Not provided",
+        phone: phone || "Not provided",
         storeName,
-        totalProducts: totalProducts || 0,
-        rating: rating || 0,
+        totalProducts: parseInt(totalProducts),
+        rating: parseFloat(rating).toFixed(1),
       });
     };
     loadSeller();
   }, []);
 
   const handleLogout = async () => {
-    await AsyncStorage.clear();
-    navigation.replace("LoginScreen");
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to log out?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+            await AsyncStorage.clear();
+            navigation.replace("LoginScreen");
+          },
+        },
+      ]
+    );
   };
 
   return (
     <View style={styles.container}>
-      {/* Logout icon */}
-      <TouchableOpacity style={styles.logoutIcon} onPress={handleLogout}>
-        <Icon name="logout" size={28} color="#007BFF" />
-      </TouchableOpacity>
+      {/* Premium Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Seller Profile</Text>
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Icon name="logout" size={26} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
 
-      <Text style={styles.header}>👤 Seller Profile</Text>
-
+      {/* Profile Card */}
       <View style={styles.profileCard}>
-        <View style={styles.avatarWrapper}>
-          <View style={styles.avatarContainer}>
-            <Text style={styles.avatarText}>
-              {seller.name ? seller.name.charAt(0).toUpperCase() : "S"}
-            </Text>
-          </View>
-        </View>
-
-        <Text style={styles.name}>{seller.name || "Seller Name"}</Text>
-        <Text style={styles.roleText}>Professional Seller</Text>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.labelTitle}>Email</Text>
-          <Text style={styles.labelValue}>{seller.email || "Not available"}</Text>
-
-          <Text style={styles.labelTitle}>Phone</Text>
-          <Text style={styles.labelValue}>{seller.phone || "Not provided"}</Text>
-
-          <Text style={styles.labelTitle}>Address</Text>
-          <Text style={styles.labelValue}>{seller.address || "Not provided"}</Text>
-
-          <Text style={styles.labelTitle}>Store Name</Text>
-          <Text style={styles.labelValue}>{seller.storeName || "N/A"}</Text>
-
-          <Text style={styles.labelTitle}>Total Products</Text>
-          <Text style={styles.labelValue}>{seller.totalProducts}</Text>
-
-          <Text style={styles.labelTitle}>Rating</Text>
-          <Text style={styles.labelValue}>
-            {seller.rating} <Text style={{ color: "#FFD700" }}>⭐</Text>
+        {/* Avatar */}
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
+            {seller.name.charAt(0).toUpperCase()}
           </Text>
         </View>
 
+        {/* Name & Role */}
+        <Text style={styles.name}>{seller.name}</Text>
+        <Text style={styles.role}>Professional Seller</Text>
+
+        {/* Stats */}
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{seller.totalProducts}</Text>
+            <Text style={styles.statLabel}>Products</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{seller.rating}</Text>
+            <Text style={styles.statLabel}>Rating</Text>
+          </View>
+        </View>
+
+        {/* Info List */}
+        <View style={styles.infoContainer}>
+          <InfoRow icon="person" label="Store Name" value={seller.storeName} />
+          <InfoRow icon="email" label="Email" value={seller.email} />
+          <InfoRow icon="phone" label="Phone" value={seller.phone} />
+          <InfoRow icon="location-on" label="Address" value={seller.address} />
+        </View>
+
+        {/* Edit Profile Button */}
         <TouchableOpacity style={styles.editButton}>
-          <Text style={styles.editText}>Edit Profile</Text>
+          <Text style={styles.editButtonText}>Edit Profile</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
+// Reusable Info Row
+const InfoRow = ({ icon, label, value }) => (
+  <View style={styles.infoRow}>
+    <View style={styles.infoLeft}>
+      <Icon name={icon} size={22} color="#0D9488" />
+      <Text style={styles.infoLabel}>{label}</Text>
+    </View>
+    <Text style={styles.infoValue} numberOfLines={2}>{value}</Text>
+  </View>
+);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F9FF",
-    padding: 20,
-    alignItems: "center",
+    backgroundColor: "#FFFFFF",
   },
-  logoutIcon: {
-    position: "absolute",
-    top: 40,
-    left: 20,
-  },
+
   header: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: "#007BFF",
-    marginVertical: 25,
-    textAlign: "center",
-  },
-  profileCard: {
-    backgroundColor: "#fff",
-    width: "100%",
-    borderRadius: 16,
-    padding: 25,
-    alignItems: "center",
-    shadowColor: "#007BFF",
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  avatarWrapper: {
-    position: "relative",
-    marginBottom: 10,
-  },
-  avatarContainer: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: "#007BFF20",
-    alignItems: "center",
+    flexDirection: "row",
     justifyContent: "center",
+    alignItems: "center",
+    paddingTop: 60,
+    paddingBottom: 32,
+    backgroundColor: "#0D9488",
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    position: "relative",
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: -0.5,
+  },
+  logoutBtn: {
+    position: "absolute",
+    right: 32,
+    top: 64,
+    padding: 8,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 16,
+  },
+
+  profileCard: {
+    marginHorizontal: 32,
+    marginTop: -50,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 28,
+    paddingVertical: 32,
+    paddingHorizontal: 28,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 20,
+    borderWidth: 1.5,
+    borderColor: "#F1F5F9",
+  },
+
+  avatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#ECFDF5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 6,
+    borderColor: "#FFFFFF",
+    shadowColor: "#0D9488",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 12,
+    marginBottom: 20,
   },
   avatarText: {
-    fontSize: 48,
-    fontWeight: "bold",
-    color: "#007BFF",
+    fontSize: 56,
+    fontWeight: "800",
+    color: "#0D9488",
   },
+
   name: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#333",
-    marginTop: 5,
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#1E293B",
+    marginBottom: 6,
   },
-  roleText: {
-    fontSize: 15,
-    color: "#666",
-    marginBottom: 15,
-  },
-  infoBox: {
-    width: "100%",
-    backgroundColor: "#EEF3FB",
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 15,
-  },
-  labelTitle: {
-    fontSize: 14,
-    color: "#007BFF",
+  role: {
+    fontSize: 17,
+    color: "#64748B",
     fontWeight: "600",
-    marginTop: 10,
+    marginBottom: 24,
   },
-  labelValue: {
-    fontSize: 16,
-    color: "#333",
+
+  statsRow: {
+    flexDirection: "row",
+    backgroundColor: "#F0FDF4",
+    paddingVertical: 20,
+    paddingHorizontal: 32,
+    borderRadius: 20,
+    marginBottom: 28,
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  statItem: {
+    alignItems: "center",
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#0D9488",
+  },
+  statLabel: {
+    fontSize: 14,
+    color: "#64748B",
     marginTop: 4,
+    fontWeight: "600",
   },
-  editButton: {
-    backgroundColor: "#28A745",
-    paddingVertical: 12,
-    paddingHorizontal: 50,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    elevation: 3,
+  statDivider: {
+    width: 1,
+    height: "100%",
+    backgroundColor: "#BBF7D0",
   },
-  editText: {
-    color: "#fff",
-    fontWeight: "700",
+
+  infoContainer: {
+    width: "100%",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 32,
+  },
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E2E8F0",
+  },
+  infoLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  infoLabel: {
     fontSize: 16,
+    color: "#64748B",
+    fontWeight: "600",
+    marginLeft: 12,
+  },
+  infoValue: {
+    fontSize: 16,
+    color: "#1E293B",
+    fontWeight: "600",
+    textAlign: "right",
+    flex: 1,
+  },
+
+  editButton: {
+    backgroundColor: "#0D9488",
+    paddingHorizontal: 48,
+    paddingVertical: 18,
+    borderRadius: 16,
+    shadowColor: "#0D9488",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  editButtonText: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "700",
   },
 });

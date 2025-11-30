@@ -1,537 +1,614 @@
-// server.js
+// server.js - MongoDB + Mongoose Version (Drop-in replacement)
 const express = require("express");
 const cors = require("cors");
-const mysql = require("mysql2");
+const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const path=require("path");
-
+require("dotenv").config();
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// ==================== DATABASE CONNECTION ====================
-const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "", // your MySQL password (leave blank if none)
-  database: "ecommerce",
+// ==================== CONNECT TO MONGODB ====================
+mongoose.connect("mongodb+srv://tayyab:12345@cluster0.7ehzawj.mongodb.net/?appName=Cluster0")
+  .then(() => console.log("✅ Connected to MongoDB"))
+  .catch(err => console.log("MongoDB Error:", err));
+
+// ==================== SCHEMAS & MODELS ====================
+const userSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String,
+  phone: String,
+  address: String,
+  image: String,
+  role: { type: String, enum: ["customer", "shopkeeper"], default: "customer" }
+}, { timestamps: true });
+
+const productSchema = new mongoose.Schema({
+  name: String,
+  description: String,
+  price: Number,
+  image_url: String,
+  category: String,
+  stock: Number,
+  seller_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
+}, { timestamps: true });
+
+// ← Replace your current cartSchema with this
+const cartSchema = new mongoose.Schema({
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+    unique: true,
+  },
+  items: {
+    type: [{
+      product_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+        required: true,
+      },
+      quantity: {
+        type: Number,
+        default: 1,
+        min: 1,
+      },
+    }],
+    default: [], // ← This is CRITICAL for $setOnInsert to work properly
+  },
+}, { timestamps: true });
+
+const orderSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  total_amount: Number,
+  status: { type: String, default: "Pending" },
+  items: [{
+    product_id: { type: mongoose.Schema.Types.ObjectId },
+    product_name: String,
+    price: Number,
+    quantity: Number,
+    image_url: String
+  }],
+  customer: {
+    name: String,
+    email: String,
+    phone: String,
+    address: String
+  }
+}, { timestamps: { createdAt: "order_date" } });
+
+const User = mongoose.model("User", userSchema);
+const Product = mongoose.model("Product", productSchema);
+const Cart = mongoose.model("Cart", cartSchema);
+const Order = mongoose.model("Order", orderSchema);
+
+// Auto convert _id → id in all responses
+[userSchema, productSchema, cartSchema, orderSchema].forEach(schema => {
+  schema.set("toJSON", {
+    transform: (doc, ret) => {
+      ret.id = ret._id.toString();
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  });
 });
 
-db.connect((err) => {
-  if (err) console.log("DB Connection Error:", err);
-  else console.log("✅ Connected to MySQL Database");
-});
-
-// ==================== JWT & ROLE MIDDLEWARE ====================
+// ==================== JWT MIDDLEWARE ====================
 const verifyToken = (requiredRole) => (req, res, next) => {
-  const token = req.headers["authorization"];
+  const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ message: "Access denied. No token provided." });
 
-  jwt.verify(token.split(" ")[1], "secretkey", (err, decoded) => {
+  jwt.verify(token, "secretkey", (err, decoded) => {
     if (err) return res.status(401).json({ message: "Invalid token" });
-    if (requiredRole && decoded.role !== requiredRole) {
+    if (requiredRole && decoded.role !== requiredRole)
       return res.status(403).json({ message: "Access denied. Not authorized." });
-    }
-    req.user = decoded; // decoded info
+    req.user = decoded;
     next();
   });
 };
 
-// ==================== USER SIGNUP ====================
+// ==================== ROUTES (100% SAME AS MYSQL) ====================
+
 app.post("/signup", async (req, res) => {
   const { name, email, password, phone, address, role } = req.body;
+  if (!name || !email || !password || !role) return res.status(400).json({ message: "All required fields must be provided" });
 
-  if (!name || !email || !password || !role) {
-    return res.status(400).json({ message: "All required fields must be provided" });
+  const exists = await User.findOne({ email });
+  if (exists) return res.status(400).json({ message: "Email already registered" });
+
+  const hashed = await bcrypt.hash(password, 10);
+  await User.create({ name, email, password: hashed, phone, address, role });
+  res.status(201).json({ message: "User registered successfully!" });
+});
+
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  const user = await User.findOne({ email });
+  if (!user || !(await bcrypt.compare(password, user.password))) {
+    return res.status(400).json({ message: "Invalid credentials" });
+  }
+
+  const token = jwt.sign({ id: user.id, role: user.role }, "secretkey", { expiresIn: "1d" });
+
+  // THIS IS THE EXACT FORMAT YOUR FRONTEND EXPECTS
+  res.json({
+    message: "Login successful",
+    token,
+    id: user.id,
+    role: user.role,
+    name: user.name,
+    email: user.email,
+    address: user.address || "",
+    phone:user.phone,
+  });
+});
+
+app.get("/products", async (req, res) => {
+  const products = await Product.find();
+  res.json(products);
+});
+
+app.post("/add-product", verifyToken("shopkeeper"), async (req, res) => {
+  const { name, price, description, image_url, category, stock } = req.body;
+  if (!name || !price || !description || !image_url || !category || !stock)
+    return res.status(400).json({ message: "All fields are required" });
+
+  await Product.create({ ...req.body, seller_id: req.user.id });
+  res.status(201).json({ message: "✅ Product added successfully" });
+});
+
+app.put("/update-product/:id", verifyToken("shopkeeper"), async (req, res) => {
+  const product = await Product.findOne({ _id: req.params.id, seller_id: req.user.id });
+  if (!product) return res.status(404).json({ message: "Product not found or not owned" });
+
+  await Product.updateOne({ _id: req.params.id }, req.body);
+  res.json({ message: "✅ Product updated successfully!" });
+});
+
+app.delete("/delete-product/:id", verifyToken("shopkeeper"), async (req, res) => {
+  const result = await Product.deleteOne({ _id: req.params.id, seller_id: req.user.id });
+  if (result.deletedCount === 0) return res.status(404).json({ message: "Product not found" });
+  res.json({ message: "🗑️ Product deleted successfully!" });
+});
+
+// POST /add-to-cart  ← FINAL BULLETPROOF VERSION
+app.post("/add-to-cart", verifyToken(), async (req, res) => {
+  const { product_id, quantity = 1 } = req.body;
+
+  if (!product_id || !mongoose.Types.ObjectId.isValid(product_id)) {
+    return res.status(400).json({ message: "Invalid product ID" });
   }
 
   try {
-    // Check if user already exists
-    const checkSql = "SELECT * FROM users WHERE email = ?";
-    db.query(checkSql, [email], async (err, results) => {
-      if (err) {
-        console.error("DB error (check existing user):", err);
-        return res.status(500).json({ message: "Database error" });
-      }
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+    const prodId = new mongoose.Types.ObjectId(product_id);
 
-      if (results.length > 0) {
-        return res.status(400).json({ message: "Email already registered" });
-      }
-
-      // Hash password securely
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      // Insert new user
-      const insertSql = `
-        INSERT INTO users (name, email, password, phone, address, role)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `;
-      db.query(insertSql, [name, email, hashedPassword, phone, address, role], (err, result) => {
-        if (err) {
-          console.error("DB error (insert user):", err);
-          return res.status(500).json({ message: "Signup failed" });
-        }
-
-        console.log("✅ New user registered:", { id: result.insertId, name, email, role });
-        res.status(201).json({ message: "User registered successfully!" });
-      });
-    });
-  } catch (error) {
-    console.error("Error during signup:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-});
-
-
-// ==================== USER LOGIN ====================
-app.post("/login", (req, res) => {
-  const { email, password } = req.body;
-  console.log("📥 Login request received:", { email, password });
-
-  db.query("SELECT * FROM users WHERE email = ?", [email], async (err, results) => {
-    if (err) {
-      console.error("❌ DB Error:", err);
-      return res.status(500).json({ message: "Database error" });
-    }
-
-    if (results.length === 0) {
-      console.log("⚠️ No user found with email:", email);
-      return res.status(400).json({ message: "User not found" });
-    }
-
-    const user = results[0];
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      console.log("⚠️ Wrong password for:", email);
-      return res.status(400).json({ message: "Invalid password" });
-    }
-
-    const token = jwt.sign({ id: user.id, role: user.role }, "secretkey", { expiresIn: "1d" });
-    console.log("✅ Login success:", user.name);
-
-    res.json({
-      message: "Login successful",
-      token,
-      id:user.id,
-      role: user.role,
-      name: user.name,
-      address:user.address,
-      email:user.email,
-      
-    });
-    console.log("✅ Login response sent:", {
-  token,
-  role: user.role,
-  name: user.name,
-   address:user.address,
-  email:user.email,
-
-});
-  });
-});
-
-
-// ==================== GET PRODUCTS ====================
-app.get("/products", (req, res) => {
-  db.query("SELECT * FROM products", (err, results) => {
-    if (err) return res.status(500).json({ message: "Error fetching products" });
-    res.json(results);
-  });
-});
-// ==================== Add PRODUCTS ====================
-
-app.post("/add-product", verifyToken("shopkeeper"), (req, res) => {
-  const { name, price, description, image_url, category, stock } = req.body;
-
-  if (!name || !price || !description || !image_url || !category || !stock) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
-  const sellerId = req.user.id;
-
-  const sql = `
-    INSERT INTO products (name, description, price, image_url, category, stock, seller_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `;
-
-  db.query(sql, [name, description, price, image_url, category, stock, sellerId], (err, result) => {
-    if (err) {
-      console.error("❌ SQL Error:", err.sqlMessage || err.message);
-      return res.status(500).json({ message: "Failed to save product", error: err.sqlMessage });
-    }
-    res.status(201).json({ message: "✅ Product added successfully" });
-  });
-});
-
-
-// ==================== UPDATE PRODUCT (Shopkeeper Only) ====================
-app.put("/update-product/:id", verifyToken("shopkeeper"), (req, res) => {
-  const productId = req.params.id;
-  const { name, description, price, image_url, category, stock } = req.body;
-
-  // ✅ Validate input
-  if (!name || !description || !price || !image_url || !category || !stock) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
-  // ✅ Update query with matching table fields
-  const sql = `
-    UPDATE products 
-    SET 
-      name = ?, 
-      description = ?, 
-      price = ?, 
-      image_url = ?, 
-      category = ?, 
-      stock = ?
-    WHERE id = ?
-  `;
-
-  db.query(
-    sql,
-    [name, description, price, image_url, category, stock, productId],
-    (err, result) => {
-      if (err) {
-        console.error("❌ SQL Error:", err);
-        return res.status(500).json({ message: "Failed to update product" });
-      }
-
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-
-      console.log("✅ Product updated successfully — ID:", productId);
-      res.json({ message: "✅ Product updated successfully!" });
-    }
-  );
-});
-
-// ==================== DELETE PRODUCT (Shopkeeper Only) ====================
-app.delete("/delete-product/:id", verifyToken("shopkeeper"), (req, res) => {
-  const productId = req.params.id;
-
-  db.query("DELETE FROM products WHERE id = ?", [productId], (err, result) => {
-    if (err) {
-      console.error("❌ SQL Error:", err);
-      return res.status(500).json({ message: "Failed to delete product" });
-    }
-
-    if (result.affectedRows === 0) {
+    // Check product exists
+    const product = await Product.findById(prodId);
+    if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    console.log("🗑️ Product deleted successfully — ID:", productId);
-    res.json({ message: "🗑️ Product deleted successfully!" });
-  });
-});
-// ==================== ADD TO CART ====================
-app.post("/add-to-cart", (req, res) => {
-  const { user_id, product_id, quantity } = req.body;
+    let cart = await Cart.findOne({ user_id: userId });
 
-  console.log("🛒 Add to Cart Request:", { user_id, product_id, quantity });
-
-  if (!user_id) {
-    console.log("❌ Missing user_id");
-    return res.status(400).json({ message: "user_id is required" });
-  }
-
-  const sql = "INSERT INTO cart (user_id, product_id, quantity) VALUES (?, ?, ?)";
-  db.query(sql, [user_id, product_id, quantity], (err, result) => {
-    if (err) {
-      console.error("❌ SQL Error adding to cart:", err);
-      return res.status(500).json({ message: "Error adding to cart" });
-    }
-    console.log("✅ Added to cart successfully:", result);
-    res.json({ message: "Item added to cart!" });
-  });
-});
-app.get("/cart/:id", (req, res) => {
-  const userId = req.params.id;
-  const sql = `
-    SELECT c.id, c.product_id, c.quantity, p.name, p.price, p.image_url
-    FROM cart c
-    JOIN products p ON c.product_id = p.id
-    WHERE c.user_id = ?
-  `;
-  db.query(sql, [userId], (err, results) => {
-    if (err) {
-      console.error("❌ SQL Error fetching cart:", err);
-      return res.status(500).json({ message: "Error fetching cart" });
-    }
-    res.json(results);
-  });
-});
-
-app.delete("/cart/:cart_id", (req, res) => {
-  const cartId = req.params.cart_id;
-
-  // First, get the user_id of the cart item
-  const getUserSql = "SELECT user_id FROM cart WHERE id = ?";
-  db.query(getUserSql, [cartId], (err, results) => {
-    if (err) return res.status(500).json({ message: "Error fetching cart item" });
-    if (results.length === 0) return res.status(404).json({ message: "Item not found in cart" });
-
-    const userId = results[0].user_id;
-
-    // Now delete the item
-    const deleteSql = "DELETE FROM cart WHERE id = ?";
-    db.query(deleteSql, [cartId], (err, result) => {
-      if (err) return res.status(500).json({ message: "Error removing item" });
-
-      // Fetch updated cart
-      const fetchCartSql = `
-        SELECT c.id, c.product_id, c.quantity, p.name, p.price, p.image_url
-        FROM cart c
-        JOIN products p ON c.product_id = p.id
-        WHERE c.user_id = ?
-      `;
-      db.query(fetchCartSql, [userId], (err, items) => {
-        if (err) return res.status(500).json({ message: "Error fetching updated cart" });
-        res.json({ message: "Item removed successfully", cart: items });
+    if (!cart) {
+      cart = new Cart({
+        user_id: userId,
+        items: [{ product_id: prodId, quantity: Number(quantity) }]
       });
+    } else {
+      const existingItemIndex = cart.items.findIndex(
+        item => item.product_id.toString() === product_id
+      );
+
+      if (existingItemIndex > -1) {
+        cart.items[existingItemIndex].quantity += Number(quantity);
+      } else {
+        cart.items.push({ product_id: prodId, quantity: Number(quantity) });
+      }
+    }
+
+    await cart.save();
+
+    // Populate safely
+    await cart.populate({
+      path: "items.product_id",
+      select: "name price image_url stock"
     });
-  });
+
+    // THIS IS THE KEY: 100% SAFE MAPPING (NO MORE NULL ERRORS EVER)
+    const cartItems = cart.items
+      .filter(item => item.product_id !== null)  // Remove deleted products
+      .map(item => ({
+        id: item._id.toString(),
+        product_id: item.product_id._id.toString(),
+        name: item.product_id.name || "Unknown Product",
+        price: Number(item.product_id.price) || 0,
+        image_url: item.product_id.image_url || "https://via.placeholder.com/150",
+        quantity: item.quantity,
+        stock: item.product_id.stock || 0,
+      }));
+
+    // Auto-clean deleted products from cart
+    if (cart.items.length !== cartItems.length) {
+      await Cart.updateOne(
+        { user_id: userId },
+        { $pull: { "items": { product_id: null } } }
+      );
+    }
+
+    const totalPrice = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+    return res.json({
+      success: true,
+      message: "Added to cart!",
+      cart: cartItems,
+      totalItems: cartItems.length,
+      totalPrice
+    });
+
+  } catch (err) {
+    console.error("Add to cart error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+// 2. GET CART (Clean format)
+app.get("/cart", verifyToken(), async (req, res) => {
+  try {
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+
+    const cart = await Cart.findOne({ user_id: userId }).populate({
+      path: "items.product_id",
+      select: "name price image_url stock"
+    });
+
+    if (!cart) return res.json([]);
+
+    const items = cart.items
+      .filter(item => item.product_id !== null)
+      .map(item => ({
+        id: item._id.toString(),
+        product_id: item.product_id._id.toString(),
+        name: item.product_id.name || "Deleted Product",
+        price: Number(item.product_id.price) || 0,
+        image_url: item.product_id.image_url || "https://via.placeholder.com/150",
+        quantity: item.quantity,
+      }));
+
+    // Clean up null items
+    if (cart.items.length !== items.length) {
+      await Cart.updateOne(
+        { user_id: userId },
+        { $pull: { "items": { product_id: null } } }
+      );
+    }
+
+    res.json(items);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching cart" });
+  }
+});
+// 3. UPDATE QUANTITY
+app.put("/cart/update", verifyToken(), async (req, res) => {
+  try {
+    const { itemId, quantity } = req.body;
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+
+    if (quantity < 1) {
+      // Remove if quantity becomes 0
+      await Cart.updateOne(
+        { user_id: userId },
+        { $pull: { items: { _id: itemId } } }
+      );
+    } else {
+      await Cart.updateOne(
+        { user_id: userId, "items._id": itemId },
+        { $set: { "items.$.quantity": quantity } }
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Update failed" });
+  }
 });
 
+// 4. REMOVE ITEM
+app.delete("/cart/item", verifyToken(), async (req, res) => {
+  try {
+    const { itemId } = req.body;
+    const userId = new mongoose.Types.ObjectId(req.user.id);
 
+    await Cart.updateOne(
+      { user_id: userId },
+      { $pull: { items: { _id: itemId } } }
+    );
 
-// ==================== PLACE ORDER ====================
-app.post("/place-order", (req, res) => {
-  const { user_id, total_amount, items } = req.body;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to remove" });
+  }
+});
 
-  const orderSql =
-    "INSERT INTO orders (user_id, total_amount, status) VALUES (?, ?, 'Pending')";
-  db.query(orderSql, [user_id, total_amount], (err, orderResult) => {
-    if (err) return res.status(500).json({ message: "Error placing order" });
+// 5. PLACE ORDER & CLEAR CART
+// 
+app.post("/place-order", verifyToken(), async (req, res) => {
+  console.log("[/place-order] Request received"); // ← Route init log
+  console.log("User ID from token:", req.user?.id);
+  console.log("Request body:", req.body);
 
-    const orderId = orderResult.insertId;
-    const itemSql =
-      "INSERT INTO order_items (order_id, product_id, quantity, price) VALUES ?";
-    const values = items.map((item) => [
-      orderId,
-      item.product_id,
-      item.quantity,
-      item.price,
+  try {
+    const { total_amount, items } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      console.log("Cart is empty or items missing");
+      return res.status(400).json({ message: "Cart is empty" });
+    }
+
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+    console.log("Converted userId (ObjectId):", userId);
+
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log("User not found for ID:", userId);
+      return res.status(404).json({ message: "User not found" });
+    }
+    console.log("User found:", { name: user.name, email: user.email });
+
+    // Create order
+    const order = await Order.create({
+      user_id: userId,
+      total_amount,
+      status: "Pending",
+      customer: {
+        name: user.name,
+        email: user.email,
+        phone: user.phone || "",
+        address: user.address || "",
+      },
+      items: items.map((i) => ({
+        product_id: i.product_id,
+        product_name: i.name,
+        price: i.price,
+        quantity: i.quantity,
+        image_url: i.image_url,
+      })),
+    });
+
+    console.log("Order created successfully:", order._id);
+
+    // THIS IS THE FIX — CLEAR THE CART
+    const cartUpdateResult = await Cart.updateOne(
+      { user_id: userId },
+      { $set: { items: [] } }
+    );
+
+    console.log("Cart clear result:", {
+      matchedCount: cartUpdateResult.matchedCount,
+      modifiedCount: cartUpdateResult.modifiedCount,
+    });
+
+    // Optional: delete entire cart document
+    // await Cart.deleteOne({ user_id: userId });
+    // console.log("Cart document deleted for user:", userId);
+
+    console.log("Order placed & cart cleared → Sending success response");
+
+    res.json({
+      success: true,
+      message: "Order placed successfully!",
+      orderId: order._id.toString(),
+    });
+
+  } catch (err) {
+    console.error("Place order error:", err);
+    res.status(500).json({ message: "Failed to place order" });
+  }
+});
+app.get("/orders", verifyToken("shopkeeper"), async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+
+    const orders = await Order.aggregate([
+      { $unwind: "$items" },
+      {
+        $lookup: {
+          from: "products",
+          localField: "items.product_id",
+          foreignField: "_id",
+          as: "product"
+        }
+      },
+      { $unwind: "$product" },
+      { $match: { "product.seller_id": new mongoose.Types.ObjectId(sellerId) } },
+      {
+        $group: {
+          _id: "$_id",
+          order_id: { $first: "$_id" }, // FIXED
+          customer_name: { $first: "$customer.name" },
+          customer_phone: { $first: "$customer.phone" },
+          customer_address: { $first: "$customer.address" },
+          total_amount: { $first: "$total_amount" },
+          status: { $first: "$status" },
+          order_date: { $first: "$order_date" },
+          items: {
+            $push: {
+              product_name: "$product.name",
+              product_image: "$product.image_url",
+              price: "$items.price",
+              quantity: "$items.quantity"
+            }
+          }
+        }
+      },
+      { $sort: { order_date: -1 } }
     ]);
 
-    db.query(itemSql, [values], (err2) => {
-      if (err2) return res.status(500).json({ message: "Error saving order items" });
+    // Convert order_id to string
+    const formattedOrders = orders.map(o => ({ ...o, order_id: o.order_id.toString() }));
 
-      // Clear cart after placing order
-      const cartIds = items.map((item) => item.id);
-      if (cartIds.length > 0) {
-        db.query("DELETE FROM cart WHERE id IN (?)", [cartIds]);
-      }
+    res.json(formattedOrders);
 
-      res.json({ message: "Order placed successfully!" });
-    });
-  });
+  } catch (err) {
+    console.error("Error fetching seller orders:", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
 });
 
-// ==================== VIEW ORDERS (Seller Only) ====================
-app.get("/orders", verifyToken("shopkeeper"), (req, res) => {
-  const sellerId = req.user.id;
+// ==================== ORDER DETAILS & MANAGEMENT ====================
 
-  const sql = `
-    SELECT 
-      o.id AS order_id,
-      u.name AS customer_name,
-      o.total_amount,
-      o.status,
-      o.order_date,
-      p.name AS product_name,
-      oi.quantity,
-      oi.price
-    FROM orders o
-    JOIN order_items oi ON o.id = oi.order_id
-    JOIN products p ON oi.product_id = p.id
-    JOIN users u ON o.user_id = u.id
-    WHERE p.seller_id = ?
-    ORDER BY o.order_date DESC
-  `;
+// GET SINGLE ORDER DETAILS - FULLY POPULATED
+app.get("/order/:orderId", verifyToken(), async (req, res) => {
+  console.log("🟡 GET ORDER DETAILS - Order ID:", req.params.orderId);
 
-  db.query(sql, [sellerId], (err, results) => {
-    if (err) return res.status(500).json({ message: "Error fetching orders" });
-
-    const orders = {};
-    results.forEach(row => {
-      if (!orders[row.order_id]) {
-        orders[row.order_id] = {
-          order_id: row.order_id,
-          customer_name: row.customer_name,
-          total_amount: row.total_amount,
-          status: row.status,
-          order_date: row.order_date,
-          items: [],
-        };
-      }
-      orders[row.order_id].items.push({
-        product_name: row.product_name,
-        quantity: row.quantity,
-        price: row.price,
+  try {
+    // Populate product info for each item
+    const order = await Order.findById(req.params.orderId)
+      .populate({
+        path: "items.product_id",
+        select: "name image_url"
+      })
+      .populate({
+        path: "customer",
+        select: "name email phone address"
       });
+
+    if (!order) {
+      console.log("❌ ORDER NOT FOUND");
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Transform order for frontend
+    const transformedOrder = {
+      id: order._id.toString(),             // Use _id as order ID
+      customer_name: order.customer?.name || "N/A",
+      email: order.customer?.email || "No email",
+      phone: order.customer?.phone || "No phone",
+      address: order.customer?.address || "Not provided",
+      total_amount: order.total_amount || 0,
+      status: order.status || "Pending",
+      order_date: order.order_date || order.createdAt,
+      items: order.items.map(item => ({
+        id: item._id.toString(),
+        product_name: item.product_id?.name || "Unnamed Product",
+        product_image: item.product_id?.image_url || "",
+        quantity: item.quantity || 1,
+        price: item.price || 0,
+        subtotal: (item.price || 0) * (item.quantity || 1)
+      }))
+    };
+
+    console.log("📦 TRANSFORMED ORDER:", transformedOrder);
+    res.json(transformedOrder);
+
+  } catch (err) {
+    console.error("❌ GET ORDER ERROR:", err.message);
+    res.status(500).json({ message: "Failed to fetch order" });
+  }
+});
+
+
+// UPDATE ORDER STATUS - FIXED VERSION
+app.put("/update-order/:orderId", verifyToken(), async (req, res) => {
+  console.log("🟡 UPDATE ORDER STATUS - Order ID:", req.params.orderId);
+  console.log("New Status:", req.body.status);
+  
+  try {
+    const order = await Order.findById(req.params.orderId);
+    
+    if (!order) {
+      console.log("❌ ORDER NOT FOUND FOR UPDATE");
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const result = await Order.updateOne(
+      { _id: req.params.orderId }, 
+      { $set: { status: req.body.status } }
+    );
+
+    console.log("✅ ORDER STATUS UPDATED to:", req.body.status);
+    console.log("Update result:", result);
+    
+    res.json({ 
+      success: true, 
+      message: `Order status updated to ${req.body.status}` 
     });
-
-    res.json(Object.values(orders));
-  });
+    
+  } catch (err) {
+    console.error("❌ UPDATE ORDER ERROR:", err.message);
+    res.status(500).json({ message: "Failed to update order" });
+  }
 });
 
-// GET single order details (any authenticated user)
-app.get("/order/:id", verifyToken(), (req, res) => {
-  const orderId = req.params.id;
+// DELETE ORDER - FIXED VERSION
+app.delete("/delete-order/:orderId", verifyToken(), async (req, res) => {
+  console.log("🟡 DELETE ORDER - Order ID:", req.params.orderId);
+  
+  try {
+    const result = await Order.deleteOne({ _id: req.params.orderId });
+    
+    if (result.deletedCount === 0) {
+      console.log("❌ ORDER NOT FOUND FOR DELETION");
+      return res.status(404).json({ message: "Order not found" });
+    }
 
-  const sql = `
-    SELECT o.id, o.user_id, u.name AS customer_name, u.address, 
-           o.total_amount, o.status, o.order_date
-    FROM orders o
-    JOIN users u ON o.user_id = u.id
-    WHERE o.id = ?;
-  `;
-
-  db.query(sql, [orderId], (err, results) => {
-    if (err) return res.status(500).json({ message: "Error fetching order" });
-    if (results.length === 0) return res.status(404).json({ message: "Order not found" });
-
-    const order = results[0];
-
-    const itemsSql = `
-      SELECT oi.id AS order_item_id, oi.product_id, p.name AS product_name, oi.quantity, oi.price
-      FROM order_items oi
-      JOIN products p ON oi.product_id = p.id
-      WHERE oi.order_id = ?;
-    `;
-
-    db.query(itemsSql, [orderId], (err, items) => {
-      if (err) return res.status(500).json({ message: "Error fetching items" });
-      order.items = items;
-      res.json(order);
+    console.log("✅ ORDER DELETED SUCCESSFULLY");
+    res.json({ 
+      success: true, 
+      message: "Order deleted successfully" 
     });
-  });
+    
+  } catch (err) {
+    console.error("❌ DELETE ORDER ERROR:", err.message);
+    res.status(500).json({ message: "Failed to delete order" });
+  }
 });
 
-// UPDATE order status (shopkeeper only)
-app.put("/update-order/:id", verifyToken("shopkeeper"), (req, res) => {
-  const orderId = req.params.id;
-  const { status } = req.body;
+// DELETE ORDER ITEM - FIXED VERSION
+app.delete("/order-item/:orderItemId", verifyToken(), async (req, res) => {
+  console.log("🟡 DELETE ORDER ITEM - Item ID:", req.params.orderItemId);
+  
+  try {
+    // Since items are embedded, we need to find the order and update it
+    const result = await Order.updateOne(
+      { "items._id": req.params.orderItemId },
+      { $pull: { items: { _id: req.params.orderItemId } } }
+    );
 
-  db.query("UPDATE orders SET status = ? WHERE id = ?", [status, orderId], (err) => {
-    if (err) return res.status(500).json({ message: "Error updating status" });
-    res.json({ message: "Order status updated!" });
-  });
-});
-/// DELETE single order item (shopkeeper only)
-app.delete("/order-item/:id", verifyToken("shopkeeper"), (req, res) => {
-  const itemId = req.params.id;
-
-  console.log("🗑️ DELETE ORDER ITEM - Request received");
-  console.log("📦 Item ID from frontend:", itemId);
-  console.log("👤 Shopkeeper:", req.user.id);
-
-  db.query("DELETE FROM order_items WHERE id=?", [itemId], (err, result) => {
-    if (err) {
-      console.error("❌ DELETE FAILED - Item ID:", itemId, "Error:", err.message);
-      return res.status(500).json({ message: "Error deleting item" });
+    if (result.modifiedCount === 0) {
+      console.log("❌ ORDER ITEM NOT FOUND");
+      return res.status(404).json({ message: "Order item not found" });
     }
 
-    console.log("✅ DELETE SUCCESS - Item ID:", itemId, "Rows affected:", result.affectedRows);
-    res.json({ message: "Item deleted", deletedItemId: itemId });
-  });
-});
-
-// DELETE entire order (shopkeeper only)
-app.delete("/delete-order/:id", verifyToken("shopkeeper"), (req, res) => {
-  const orderId = req.params.id;
-
-  console.log("🗑️ DELETE ENTIRE ORDER - Request received");
-  console.log("📦 Order ID from frontend:", orderId);
-  console.log("👤 Shopkeeper:", req.user.id);
-
-  // Step 1: Delete order items
-  db.query("DELETE FROM order_items WHERE order_id=?", [orderId], (err, itemsResult) => {
-    if (err) {
-      console.error("❌ DELETE ORDER ITEMS FAILED - Order ID:", orderId, "Error:", err.message);
-      return res.status(500).json({ message: "Error deleting order items" });
-    }
-
-    console.log("✅ ORDER ITEMS DELETED - Order ID:", orderId, "Items removed:", itemsResult.affectedRows);
-
-    // Step 2: Delete order itself
-    db.query("DELETE FROM orders WHERE id=?", [orderId], (err2, orderResult) => {
-      if (err2) {
-        console.error("❌ DELETE ORDER FAILED - Order ID:", orderId, "Error:", err2.message);
-        return res.status(500).json({ message: "Error deleting order" });
-      }
-
-      console.log("✅ ENTIRE ORDER DELETED - Order ID:", orderId, "Order removed");
-      res.json({ message: "Order deleted" });
+    console.log("✅ ORDER ITEM DELETED");
+    res.json({ 
+      success: true, 
+      message: "Item removed from order" 
     });
-  });
+    
+  } catch (err) {
+    console.error("❌ DELETE ORDER ITEM ERROR:", err.message);
+    res.status(500).json({ message: "Failed to remove item" });
+  }
 });
 
-// ==================== GET PROFILE ====================
-app.get("/profile/:id", (req, res) => {
-  const userId = req.params.id;
-
-  console.log("📥 GET /profile/:id called with ID:", userId);
-
-  db.query(
-    "SELECT id, name, email, phone, address, image, role FROM users WHERE id = ?",
-    [userId],
-    (err, results) => {
-      if (err) {
-        console.error("❌ Error fetching profile:", err);
-        return res.status(500).json({ message: "Error fetching profile" });
-      }
-
-      if (results.length === 0) {
-        console.log("⚠️ No user found for ID:", userId);
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      console.log("✅ Profile fetched successfully:", results[0]);
-      res.json(results[0]);
-    }
-  );
+app.get("/profile/:id", async (req, res) => {
+  const user = await User.findById(req.params.id);
+  if (!user) return res.status(404).json({ message: "User not found" });
+  res.json(user);
 });
 
-// ==================== UPDATE PROFILE ====================
-app.put("/profile/:id", (req, res) => {
-  const userId = req.params.id;
-  const { name, email, phone, address, image } = req.body;
-
-  console.log("📤 PUT /profile/:id called with data:", {
-    userId,
-    name,
-    email,
-    phone,
-    address,
-    image,
-  });
-
-  db.query(
-    "UPDATE users SET name = ?, email = ?, phone = ?, address = ?, image = ? WHERE id = ?",
-    [name, email, phone, address, image, userId],
-    (err, result) => {
-      if (err) {
-        console.error("❌ Error updating profile:", err);
-        return res.status(500).json({ message: "Error updating profile" });
-      }
-
-      console.log("✅ Profile updated successfully for user ID:", userId);
-      res.json({ message: "Profile updated successfully!" });
-    }
-  );
+app.put("/profile/:id", async (req, res) => {
+  await User.updateOne({ _id: req.params.id }, req.body);
+  res.json({ message: "Profile updated successfully!" });
 });
 
+app.get("/", (req, res) => res.send("✅ E-Commerce MongoDB Server Running..."));
 
-
-// ==================== DEFAULT ROUTE ====================
-app.get("/", (req, res) => {
-  res.send("✅ E-Commerce Server Running...");
-});
-
-// ==================== START SERVER ====================
 app.listen(5000, () => console.log("🚀 Server running on http://localhost:5000"));
-

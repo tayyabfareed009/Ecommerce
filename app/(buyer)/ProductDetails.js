@@ -1,17 +1,20 @@
+// app/(buyer)/ProductDetails.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
 import { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 
-export default function ProductDetails({ route, navigation }) {
+export default function ProductDetails({ route }) {
   const { product } = route.params;
   const [quantity, setQuantity] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -19,17 +22,21 @@ export default function ProductDetails({ route, navigation }) {
   const addToCart = async () => {
     try {
       setLoading(true);
-
       const token = await AsyncStorage.getItem("token");
-      const userId = await AsyncStorage.getItem("id");
 
-      if (!token || !userId) {
-        Alert.alert("⚠️ Unauthorized", "Please log in first.");
+      if (!token) {
+        Alert.alert("Login Required", "Please login to add items to cart", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Login", onPress: () => router.push("/(auth)/LoginScreen") },
+        ]);
         return;
       }
 
-      const baseUrl =
-        Platform.OS === "android" ? "http://10.0.2.2:5000" : "http://localhost:5000";
+      const baseUrl = Platform.select({
+        ios: "http://localhost:5000",
+        android: "http://10.0.2.2:5000",
+        default: "http://localhost:5000",
+      });
 
       const res = await fetch(`${baseUrl}/add-to-cart`, {
         method: "POST",
@@ -38,141 +45,233 @@ export default function ProductDetails({ route, navigation }) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          user_id: parseInt(userId),
-          product_id: product.id,
-          quantity: parseInt(quantity),
+          product_id: product.id || product._id,
+          quantity: quantity,
         }),
       });
 
-      const text = await res.text();
-      if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
+      const data = await res.json();
 
-      Alert.alert("✅ Success", "Product added to cart!");
-      navigation.goBack();
+      if (!res.ok) throw new Error(data.message || "Failed to add to cart");
+
+      Alert.alert(
+        "Added to Cart!",
+        `${quantity} × ${product.name} added successfully`,
+        [
+          { text: "Continue Shopping", style: "cancel" },
+          { text: "View Cart", onPress: () => router.push("/(buyer)/CartScreen") },
+        ]
+      );
     } catch (err) {
-      console.log("❌ Error adding to cart:", err);
-      Alert.alert("❌ Failed", "Could not add product to cart.");
+      Alert.alert("Error", err.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
   };
 
+  const imageUrl = product.image_url || product.image || "https://via.placeholder.com/500";
+
   return (
     <View style={styles.container}>
-      {product.image_url ? (
-        <Image source={{ uri: product.image_url }} style={styles.image} resizeMode="cover" />
-      ) : null}
-
-      <View style={styles.detailsContainer}>
-        <Text style={styles.name}>{product.name}</Text>
-        <Text style={styles.price}>${product.price}</Text>
-        <Text style={styles.desc}>{product.description}</Text>
-
-        <View style={styles.qtyContainer}>
-          <TouchableOpacity onPress={() => setQuantity(Math.max(1, quantity - 1))}>
-            <Text style={styles.qtyBtn}>−</Text>
-          </TouchableOpacity>
-          <TextInput
-            value={quantity.toString()}
-            keyboardType="numeric"
-            onChangeText={(text) => setQuantity(Math.max(1, parseInt(text) || 1))}
-            style={styles.qtyInput}
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Hero Image */}
+        <View style={styles.imageContainer}>
+          <Image
+            source={{ uri: imageUrl }}
+            style={styles.productImage}
+            resizeMode="cover"
           />
-          <TouchableOpacity onPress={() => setQuantity(quantity + 1)}>
-            <Text style={styles.qtyBtn}>+</Text>
-          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={[styles.btn, loading && { opacity: 0.8 }]}
-          onPress={addToCart}
-          disabled={loading}
-        >
-          <Text style={styles.btnText}>{loading ? "Adding..." : "Add to Cart"}</Text>
-        </TouchableOpacity>
-      </View>
+        {/* Floating Details Card */}
+        <View style={styles.detailsCard}>
+          <Text style={styles.productName}>{product.name || "Product Name"}</Text>
+          <Text style={styles.productPrice}>
+            ₹{Number(product.price || 0).toLocaleString("en-IN")}
+          </Text>
+
+          {product.category && (
+            <Text style={styles.category}>Category: {product.category}</Text>
+          )}
+
+          <Text style={styles.description}>
+            {product.description || "No description available for this product."}
+          </Text>
+
+          {/* Quantity Selector */}
+          <View style={styles.quantitySection}>
+            <Text style={styles.quantityLabel}>Quantity</Text>
+            <View style={styles.quantityPicker}>
+              <TouchableOpacity
+                style={styles.qtyBtn}
+                onPress={() => setQuantity(Math.max(1, quantity - 1))}
+              >
+                <Text style={styles.qtyBtnText}>−</Text>
+              </TouchableOpacity>
+
+              <View style={styles.qtyDisplay}>
+                <Text style={styles.qtyText}>{quantity}</Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.qtyBtn}
+                onPress={() => setQuantity(quantity + 1)}
+              >
+                <Text style={styles.qtyBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Add to Cart Button */}
+          <TouchableOpacity
+            style={[styles.addToCartButton, loading && styles.disabledButton]}
+            onPress={addToCart}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.addToCartText}>Add to Cart</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f7faff" },
-  image: {
+  container: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+
+  imageContainer: {
+    height: 420,
+    backgroundColor: "#F8FAFC",
+  },
+  productImage: {
     width: "100%",
-    height: 320,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
+    height: "100%",
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
   },
-  detailsContainer: {
-    padding: 20,
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    marginTop: -30,
+
+  detailsCard: {
+    marginTop: -60,
+    marginHorizontal: 24,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 32,
+    padding: 32,
+    paddingBottom: 40,
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 20,
+    borderWidth: 1.5,
+    borderColor: "#F1F5F9",
   },
-  name: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#333",
+
+  productName: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#1E293B",
+    textAlign: "center",
     marginBottom: 8,
-    textAlign: "center",
+    lineHeight: 36,
   },
-  price: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#007bff",
+  productPrice: {
+    fontSize: 36,
+    fontWeight: "800",
+    color: "#0D9488",
     textAlign: "center",
-    marginBottom: 10,
+    marginBottom: 16,
   },
-  desc: {
+  category: {
     fontSize: 16,
-    color: "#555",
-    lineHeight: 22,
+    color: "#64748B",
     textAlign: "center",
-    marginBottom: 20,
+    marginBottom: 24,
+    fontWeight: "600",
+    textTransform: "capitalize",
   },
-  qtyContainer: {
+  description: {
+    fontSize: 16,
+    color: "#475569",
+    lineHeight: 26,
+    textAlign: "center",
+    marginBottom: 32,
+  },
+
+  quantitySection: {
     flexDirection: "row",
-    justifyContent: "center",
+    justifyContent: "space-between",
     alignItems: "center",
-    marginVertical: 15,
+    backgroundColor: "#F0FDF4",
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 32,
+  },
+  quantityLabel: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1E293B",
+  },
+  quantityPicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#0D9488",
   },
   qtyBtn: {
-    fontSize: 28,
-    color: "#007bff",
-    paddingHorizontal: 20,
-    fontWeight: "bold",
-  },
-  qtyInput: {
-    borderWidth: 1.5,
-    borderColor: "#007bff",
-    borderRadius: 10,
-    padding: 6,
-    width: 70,
-    textAlign: "center",
-    fontSize: 18,
-    color: "#333",
-    backgroundColor: "#f9fbff",
-  },
-  btn: {
-    backgroundColor: "#007bff",
-    paddingVertical: 14,
-    borderRadius: 12,
+    width: 56,
+    height: 56,
+    backgroundColor: "#0D9488",
+    justifyContent: "center",
     alignItems: "center",
-    marginTop: 25,
-    shadowColor: "#007bff",
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 6,
-    elevation: 5,
   },
-  btnText: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  qtyBtnText: {
+    color: "#FFFFFF",
+    fontSize: 28,
+    fontWeight: "bold",
+    marginTop: -4,
+  },
+  qtyDisplay: {
+    width: 80,
+    height: 56,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  qtyText: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#1E293B",
+  },
+
+  addToCartButton: {
+    backgroundColor: "#0D9488",
+    paddingVertical: 20,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#0D9488",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 16,
+  },
+  disabledButton: {
+    opacity: 0.7,
+  },
+  addToCartText: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
 });

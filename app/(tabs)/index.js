@@ -10,7 +10,7 @@ import ProfileScreen from "../(buyer)/ProfileScreen";
 // ===== Seller Screens =====
 import AddProduct from "../(seller)/AddProduct";
 import Dashboard from "../(seller)/Dashboard";
-import ImageSelectorScreen from "../(seller)/ImageSelectorScreen";
+//import ImageSelectorScreen from "../(seller)/ImageSelectorScreen";
 import ManageProducts from "../(seller)/ManageProducts";
 import OrderDetails from "../(seller)/OrderDetails"; // adjust path if needed
 import SellerProfile from "../(seller)/SellerProfile";
@@ -48,7 +48,7 @@ function SellerStack() {
       <Stack.Screen name="Dashboard" component={Dashboard} />
       <Stack.Screen name="ManageProducts" component={ManageProducts} />
       <Stack.Screen name="AddProduct" component={AddProduct} />
-<Stack.Screen name="ImageSelectorScreen" component={ImageSelectorScreen} />
+
 
       <Stack.Screen name="SellerProfile" component={SellerProfile} />
       <Stack.Screen name="OrderDetails" component={OrderDetails} />

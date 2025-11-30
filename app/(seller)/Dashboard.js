@@ -1,175 +1,269 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  FlatList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 export default function Dashboard({ navigation }) {
   const [orders, setOrders] = useState([]);
 
   const fetchOrders = async () => {
     try {
-      const baseUrl = "http://localhost:5000"; // Update if using emulator/device
       const token = await AsyncStorage.getItem("token");
+      if (!token) return;
 
-      if (!token) {
-        console.log("⚠️ No token found in storage");
-        return;
-      }
-
-      const res = await fetch(`${baseUrl}/orders`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      const res = await fetch("http://localhost:5000/orders", {
+        headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!res.ok) {
-        throw new Error(`HTTP error! Status: ${res.status}`);
+      if (res.ok) {
+        const data = await res.json();
+        setOrders(data);
       }
-
-      const data = await res.json();
-      setOrders(data);
     } catch (err) {
       console.log("Error fetching orders:", err);
     }
   };
 
   useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", fetchOrders);
     fetchOrders();
-  }, []);
+    return unsubscribe;
+  }, [navigation]);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>📦 Seller Dashboard</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Seller Dashboard</Text>
+        <Text style={styles.headerSubtitle}>Manage your store & orders</Text>
+      </View>
 
-      {/* Navigation Buttons */}
-      <View style={styles.navContainer}>
+      {/* Action Cards */}
+      <View style={styles.actionsGrid}>
         <TouchableOpacity
-          style={[styles.navBtn, { backgroundColor: "#007BFF" }]}
+          style={[styles.actionCard, styles.manageProducts]}
           onPress={() => navigation.navigate("ManageProducts")}
         >
-          <Text style={styles.navText}>Manage Products</Text>
+          <Text style={styles.actionIcon}>Manage</Text>
+          <Text style={styles.actionTitle}>Manage Products</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.navBtn, { backgroundColor: "#00B894" }]}
+          style={[styles.actionCard, styles.addProduct]}
           onPress={() => navigation.navigate("AddProduct")}
         >
-          <Text style={styles.navText}>Add Product</Text>
+          <Text style={styles.actionIcon}>Add</Text>
+          <Text style={styles.actionTitle}>Add Product</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.navBtn, { backgroundColor: "#0984E3" }]}
+          style={[styles.actionCard, styles.profile]}
           onPress={() => navigation.navigate("SellerProfile")}
         >
-          <Text style={styles.navText}>Profile</Text>
+          <Text style={styles.actionIcon}>Profile</Text>
+          <Text style={styles.actionTitle}>My Profile</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Orders Section */}
-      <Text style={styles.subHeader}>Recent Orders</Text>
+      {/* Recent Orders */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Recent Orders</Text>
+        <Text style={styles.orderCount}>{orders.length} order{orders.length !== 1 ? "s" : ""}</Text>
+      </View>
 
       <FlatList
-        data={orders || []}
-        keyExtractor={(item, index) =>
-          (item?.order_id || item?.id || index).toString()
+        data={orders}
+        keyExtractor={(item) => item.order_id?.toString() || Math.random().toString()}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No orders yet</Text>
+            <Text style={styles.emptySubtext}>When customers place orders, they'll appear here</Text>
+          </View>
         }
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.orderCard}
-            onPress={() =>
-              navigation.navigate("OrderDetails", { orderId: item.order_id })
-            }
+            onPress={() => navigation.navigate("OrderDetails", { orderId: item.order_id })}
           >
-            <Text style={styles.orderName}>👤 {item.customer_name}</Text>
-            <Text style={styles.orderPrice}>💰 ${item.total_amount}</Text>
-            <Text style={styles.orderStatus}>
-              Status: <Text style={styles.statusText}>{item.status}</Text>
-            </Text>
+            <View style={styles.orderHeader}>
+              <Text style={styles.customerName}>{item.customer_name || "Customer"}</Text>
+              <Text style={styles.totalAmount}>${item.total_amount}</Text>
+            </View>
+
+            <View style={styles.orderFooter}>
+              <Text style={styles.orderId}>Order #{item.order_id}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
+                <Text style={styles.statusText}>{item.status || "Pending"}</Text>
+              </View>
+            </View>
           </TouchableOpacity>
         )}
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>No recent orders found.</Text>
-        }
       />
     </View>
   );
 }
 
+// Dynamic status color
+const getStatusColor = (status) => {
+  switch (status?.toLowerCase()) {
+    case "delivered": return "#DCFCE7";
+    case "shipped": return "#DBEAFE";
+    case "processing": return "#FEF3C7";
+    case "cancelled": return "#FEE2E2";
+    default: return "#E0E7FF";
+  }
+};
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F9FF",
-    padding: 20,
+    backgroundColor: "#FFFFFF",
   },
+
   header: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: "#007BFF",
-    textAlign: "center",
-    marginBottom: 20,
+    paddingTop: 60,
+    paddingHorizontal: 32,
+    paddingBottom: 24,
+    backgroundColor: "#0D9488",
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
-  navContainer: {
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    textAlign: "center",
+  },
+  headerSubtitle: {
+    fontSize: 17,
+    color: "#E0F2F1",
+    textAlign: "center",
+    marginTop: 6,
+    opacity: 0.9,
+  },
+
+  actionsGrid: {
+    flexDirection: "row",
+    paddingHorizontal: 24,
+    marginTop: -20,
+    marginBottom: 32,
+    gap: 16,
+  },
+  actionCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    paddingVertical: 20,
+    borderRadius: 20,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  manageProducts: { backgroundColor: "#EFF6FF" },
+  addProduct: { backgroundColor: "#F0FDF4" },
+  profile: { backgroundColor: "#FDF4FF" },
+
+  actionIcon: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  actionTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1E293B",
+  },
+
+  sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 25,
-  },
-  navBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    marginHorizontal: 5,
-    borderRadius: 12,
     alignItems: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
+    paddingHorizontal: 32,
+    marginBottom: 16,
   },
-  navText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
+  sectionTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#1E293B",
   },
-  subHeader: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#333",
-    marginBottom: 10,
-  },
-  orderCard: {
-    backgroundColor: "#fff",
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 3,
-    shadowColor: "#007BFF",
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 5,
-  },
-  orderName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#222",
-    marginBottom: 4,
-  },
-  orderPrice: {
+  orderCount: {
     fontSize: 15,
-    color: "#007BFF",
+    color: "#64748B",
     fontWeight: "600",
-    marginBottom: 3,
   },
-  orderStatus: {
+
+  orderCard: {
+    marginHorizontal: 32,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#F1F5F9",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  orderHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  customerName: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#1E293B",
+  },
+  totalAmount: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0D9488",
+  },
+  orderFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  orderId: {
     fontSize: 14,
-    color: "#555",
+    color: "#64748B",
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
   },
   statusText: {
+    fontSize: 13,
     fontWeight: "700",
-    color: "#00B894",
+    color: "#1E293B",
+  },
+
+  emptyContainer: {
+    alignItems: "center",
+    marginTop: 60,
+    paddingHorizontal: 40,
   },
   emptyText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#64748B",
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 15,
+    color: "#94A3B8",
     textAlign: "center",
-    color: "#777",
-    fontStyle: "italic",
-    marginTop: 40,
-    fontSize: 16,
+    lineHeight: 22,
   },
 });

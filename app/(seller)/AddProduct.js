@@ -1,8 +1,12 @@
+// app/(seller)/AddProduct.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useEffect, useState } from "react";
+import * as ImagePicker from "expo-image-picker";
+import React, { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,246 +15,328 @@ import {
   View,
 } from "react-native";
 
+const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/dkwxr9ege/image/upload";
+
 export default function AddProduct({ route, navigation }) {
   const editProduct = route?.params?.editProduct;
-  const selectedImage = route?.params?.selectedImage;
 
-  const [product, setProduct] = useState(
-    editProduct || {
-      name: "",
-      description: "",
-      price: "",
-      category: "",
-      stock: "",
-      image_url: "",
+  const [product, setProduct] = useState({
+    name: editProduct?.name || "",
+    description: editProduct?.description || "",
+    price: editProduct?.price?.toString() || "",
+    category: editProduct?.category || "",
+    stock: editProduct?.stock?.toString() || "",
+    image_url: editProduct?.image_url || "",
+  });
+
+  const [uploading, setUploading] = useState(false);
+
+  const pickAndUploadImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (result.canceled) return;
+
+    const uri = result.assets[0].uri;
+    setUploading(true);
+
+    const formData = new FormData();
+    if (Platform.OS === "web") {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      formData.append("file", blob);
+    } else {
+      formData.append("file", {
+        uri,
+        name: "product.jpg",
+        type: "image/jpeg",
+      });
     }
-  );
+    formData.append("upload_preset", "expo_uploads");
 
-  // ✅ Update image when returning from selector
-  useEffect(() => {
-    if (selectedImage) {
-      setProduct((prev) => ({ ...prev, image_url: selectedImage }));
+    try {
+      const res = await fetch(CLOUDINARY_URL, { method: "POST", body: formData });
+      const data = await res.json();
+
+      if (data.secure_url) {
+        setProduct({ ...product, image_url: data.secure_url });
+        Alert.alert("Success", "Image uploaded!");
+      } else {
+        Alert.alert("Error", data.error?.message || "Upload failed");
+      }
+    } catch (err) {
+      Alert.alert("Error", "Failed to upload image");
+    } finally {
+      setUploading(false);
     }
-  }, [selectedImage]);
-
-  // ✅ Built-in local images mapping
-  const localImages = {
-    Hoodie: require("../../uploads/Hoodie.jpg"),
-    hoodie2: require("../../uploads/hoodie2.jpeg"),
-    Nike_Shoes: require("../../uploads/Nike_Shoes.jpeg"),
-    Shirt1: require("../../uploads/Shirt1.jpg"),
-    Shirt2: require("../../uploads/Shirt2.png"),
-    SunGlasses: require("../../uploads/SunGlasses.jpeg"),
-    SunGlasses2: require("../../uploads/SunGlasses2.png"),
-    TransperentGlasses: require("../../uploads/TransperentGlasses.png"),
   };
 
-  // 💾 Save product to backend
   const handleSubmit = async () => {
-    if (!product.name || !product.price || !product.category) {
-      Alert.alert("⚠️ Missing fields", "Please fill in all required fields.");
+    if (!product.name || !product.price || !product.category || !product.image_url) {
+      Alert.alert("Required", "Please fill all fields and upload an image");
       return;
     }
 
     try {
       const token = await AsyncStorage.getItem("token");
-      if (!token) {
-        Alert.alert("Unauthorized", "Please log in first.");
-        return;
-      }
+      const url = editProduct
+        ? `http://localhost:5000/update-product/${editProduct.id}`
+        : "http://localhost:5000/add-product";
 
-      const baseUrl = "http://localhost:5000";
-      const endpoint = editProduct
-        ? `${baseUrl}/update-product/${editProduct.id}`
-        : `${baseUrl}/add-product`;
-      const method = editProduct ? "PUT" : "POST";
+      const payload = {
+        ...product,
+        price: parseFloat(product.price),
+        stock: parseInt(product.stock || "0", 10),
+      };
 
-      const response = await fetch(endpoint, {
-        method,
+      const res = await fetch(url, {
+        method: editProduct ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(product),
+        body: JSON.stringify(payload),
       });
 
-      const text = await response.text();
-      if (!response.ok) throw new Error(text || "Failed to save product");
-
-      Alert.alert(
-        "✅ Success",
-        editProduct
-          ? "Product updated successfully!"
-          : "Product added successfully!"
-      );
-      navigation.goBack();
-    } catch (error) {
-      console.log("❌ Error adding product:", error);
-      Alert.alert("Error", "Failed to save product. Please try again.");
+      if (res.ok) {
+        Alert.alert("Success", editProduct ? "Product updated!" : "Product added!");
+        navigation.goBack();
+      } else {
+        const err = await res.text();
+        Alert.alert("Error", err || "Failed to save");
+      }
+    } catch (err) {
+      Alert.alert("Error", "Check your connection");
     }
-  };
-
-  // 🖼️ Navigate to image selector
-  const handleSelectImage = () => {
-    navigation.navigate("ImageSelectorScreen", {
-      onSelect: (selectedImageName) => {
-        setProduct((prev) => ({ ...prev, image_url: selectedImageName }));
-      },
-    });
-  };
-
-  // 🖼️ Render image preview safely
-  const renderImagePreview = () => {
-    if (product.image_url && localImages[product.image_url]) {
-      return (
-        <Image
-          source={localImages[product.image_url]}
-          style={styles.imagePreview}
-          resizeMode="cover"
-        />
-      );
-    }
-    return (
-      <View style={styles.noImageContainer}>
-        <Text style={styles.noImageIcon}>🖼️</Text>
-        <Text style={styles.noImageText}>No image selected</Text>
-      </View>
-    );
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      <Text style={styles.header}>
-        {editProduct ? "✏️ Edit Product" : "➕ Add Product"}
-      </Text>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.title}>
+          {editProduct ? "Edit Product" : "Add New Product"}
+        </Text>
+        <Text style={styles.subtitle}>
+          {editProduct ? "Update product details" : "Fill in the details below"}
+        </Text>
+      </View>
 
-      {/* 🔹 Image Preview and Select Button */}
+      {/* Image Upload Section */}
       <View style={styles.imageSection}>
-        <View style={styles.imagePreviewBox}>
-          {renderImagePreview()}
-        </View>
-        <TouchableOpacity
-          style={styles.selectBtn}
-          onPress={handleSelectImage}
-        >
-          <Text style={styles.selectBtnText}>
-            {product.image_url ? "Change Image" : "Select Image"}
+        <TouchableOpacity onPress={pickAndUploadImage} disabled={uploading}>
+          <View style={styles.imageBox}>
+            {uploading ? (
+              <View style={styles.uploadingOverlay}>
+                <ActivityIndicator size="large" color="#0D9488" />
+                <Text style={styles.uploadingText}>Uploading image...</Text>
+              </View>
+            ) : product.image_url ? (
+              <Image source={{ uri: product.image_url }} style={styles.image} resizeMode="cover" />
+            ) : (
+              <View style={styles.placeholder}>
+                <Text style={styles.cameraIcon}>Camera</Text>
+                <Text style={styles.placeholderText}>Tap to add photo</Text>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.uploadButton} onPress={pickAndUploadImage} disabled={uploading}>
+          <Text style={styles.uploadButtonText}>
+            {uploading ? "Uploading..." : product.image_url ? "Change Photo" : "Choose from Gallery"}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* 🔹 Input Fields */}
-      {[
-        { key: "name", placeholder: "Product Name", required: true },
-        { key: "description", placeholder: "Description", required: false },
-        { key: "price", placeholder: "Price", required: true, keyboardType: "numeric" },
-        { key: "category", placeholder: "Category", required: true },
-        { key: "stock", placeholder: "Stock Quantity", required: false, keyboardType: "numeric" },
-      ].map((field) => (
-        <View key={field.key}>
-          <TextInput
-            placeholder={field.placeholder + (field.required ? " *" : "")}
-            value={String(product[field.key] || "")}
-            onChangeText={(text) => setProduct({ ...product, [field.key]: text })}
-            style={styles.input}
-            keyboardType={field.keyboardType || "default"}
-          />
-        </View>
-      ))}
+      {/* Form Fields */}
+      <View style={styles.form}>
+        {[
+          { label: "Product Name", key: "name", required: true },
+          { label: "Description", key: "description", multiline: true },
+          { label: "Price (₹)", key: "price", keyboardType: "numeric", required: true },
+          { label: "Category", key: "category", required: true },
+          { label: "Stock Quantity", key: "stock", keyboardType: "numeric" },
+        ].map((field) => (
+          <View key={field.key} style={styles.inputGroup}>
+            <Text style={styles.label}>
+              {field.label} {field.required && <Text style={styles.required}>*</Text>}
+            </Text>
+            <TextInput
+              style={[styles.input, field.multiline && styles.multilineInput]}
+              value={product[field.key]}
+              onChangeText={(text) => setProduct({ ...product, [field.key]: text })}
+              placeholder={`Enter ${field.label.toLowerCase()}`}
+              placeholderTextColor="#94A3B8"
+              keyboardType={field.keyboardType || "default"}
+              multiline={field.multiline}
+              numberOfLines={field.multiline ? 4 : 1}
+            />
+          </View>
+        ))}
+      </View>
 
-      {/* 🔹 Submit Button */}
-      <TouchableOpacity style={styles.btn} onPress={handleSubmit}>
-        <Text style={styles.btnText}>
+      {/* Submit Button */}
+      <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+        <Text style={styles.submitText}>
           {editProduct ? "Update Product" : "Add Product"}
         </Text>
       </TouchableOpacity>
+
+      <View style={{ height: 40 }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: "#f5f9ff", 
+  container: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
   },
-  contentContainer: {
-    padding: 20,
+
+  header: {
+    paddingTop: 60,
+    paddingHorizontal: 32,
+    paddingBottom: 32,
+    backgroundColor: "#0D9488",
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
-  header: { 
-    fontSize: 24, 
-    fontWeight: "800", 
-    textAlign: "center", 
-    marginBottom: 25, 
-    color: "#007BFF" 
+  title: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    textAlign: "center",
+    letterSpacing: -0.5,
   },
+  subtitle: {
+    fontSize: 17,
+    color: "#E0F2F1",
+    textAlign: "center",
+    marginTop: 8,
+    opacity: 0.95,
+  },
+
   imageSection: {
     alignItems: "center",
-    marginBottom: 20,
+    paddingHorizontal: 32,
+    marginTop: -50,
+    marginBottom: 32,
   },
-  imagePreviewBox: {
-    borderRadius: 15,
+  imageBox: {
     width: 180,
     height: 180,
-    backgroundColor: "#fff",
-    borderColor: "#007BFF33",
-    borderWidth: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 15,
-    elevation: 4,
+    borderRadius: 28,
+    backgroundColor: "#F8FAFC",
     overflow: "hidden",
+    borderWidth: 4,
+    borderColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 16,
   },
-  imagePreview: { 
-    width: "100%", 
-    height: "100%", 
-    borderRadius: 15 
+  image: {
+    width: "100%",
+    height: "100%",
   },
-  noImageContainer: {
-    alignItems: "center",
+  placeholder: {
+    flex: 1,
     justifyContent: "center",
+    alignItems: "center",
   },
-  noImageIcon: {
-    fontSize: 40,
+  cameraIcon: {
+    fontSize: 48,
     marginBottom: 8,
   },
-  noImageText: { 
-    color: "#007BFF", 
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  selectBtn: { 
-    backgroundColor: "#00BFFF", 
-    paddingVertical: 12, 
-    paddingHorizontal: 24,
-    borderRadius: 10, 
-    alignItems: "center",
-    minWidth: 150,
-  },
-  selectBtnText: { 
-    color: "#fff", 
-    fontWeight: "700",
+  placeholderText: {
     fontSize: 16,
+    color: "#64748B",
+    fontWeight: "600",
   },
-  input: { 
-    backgroundColor: "#fff", 
-    borderWidth: 1, 
-    borderColor: "#E0E0E0", 
-    padding: 12, 
-    marginBottom: 12, 
-    borderRadius: 10, 
-    fontSize: 16 
+  uploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  btn: { 
-    backgroundColor: "#007BFF", 
-    paddingVertical: 14, 
-    borderRadius: 12, 
-    alignItems: "center", 
-    marginTop: 10,
-    marginBottom: 20,
+  uploadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0D9488",
   },
-  btnText: { 
-    color: "#fff", 
-    fontSize: 18, 
-    fontWeight: "700" 
+
+  uploadButton: {
+    marginTop: 20,
+    backgroundColor: "#0D9488",
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 16,
+    shadowColor: "#0D9488",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  uploadButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  form: {
+    paddingHorizontal: 32,
+  },
+  inputGroup: {
+    marginBottom: 24,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1E293B",
+    marginBottom: 10,
+  },
+  required: {
+    color: "#EF4444",
+  },
+  input: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    fontSize: 17,
+    borderWidth: 1.5,
+    borderColor: "#E2E8F0",
+    color: "#1E293B",
+  },
+  multilineInput: {
+    height: 110,
+    textAlignVertical: "top",
+  },
+
+  submitButton: {
+    marginHorizontal: 32,
+    marginTop: 20,
+    marginBottom: 40,
+    backgroundColor: "#0D9488",
+    paddingVertical: 20,
+    borderRadius: 16,
+    alignItems: "center",
+    shadowColor: "#0D9488",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 14,
+  },
+  submitText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: 0.5,
   },
 });

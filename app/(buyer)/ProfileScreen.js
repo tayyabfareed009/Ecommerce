@@ -1,6 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  Alert,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 
 export default function ProfileScreen({ navigation }) {
@@ -14,19 +20,33 @@ export default function ProfileScreen({ navigation }) {
 
   useEffect(() => {
     const loadUser = async () => {
-      const name = await AsyncStorage.getItem("name");
-      const email = await AsyncStorage.getItem("email");
-      const address = await AsyncStorage.getItem("address");
-      const phone = await AsyncStorage.getItem("phone");
+      const name = await AsyncStorage.getItem("name") || "Guest User";
+      const email = await AsyncStorage.getItem("email") || "Not available";
+      const address = await AsyncStorage.getItem("address") || "Not provided";
+      const phone = await AsyncStorage.getItem("phone") || "Not provided";
       const role = (await AsyncStorage.getItem("role")) || "Customer";
+
       setUser({ name, email, address, phone, role });
     };
     loadUser();
   }, []);
 
-  const handleLogout = async () => {
-    await AsyncStorage.clear();
-    navigation.replace("LoginScreen");
+  const handleLogout = () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to log out?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+            await AsyncStorage.clear();
+            navigation.replace("LoginScreen");
+          },
+        },
+      ]
+    );
   };
 
   const handleEditProfile = () => {
@@ -35,161 +55,221 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      {/* Logout Icon */}
-      <TouchableOpacity style={styles.logoutIcon} onPress={handleLogout}>
-        <Icon name="logout" size={28} color="#007bff" />
-      </TouchableOpacity>
+      {/* Premium Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>My Profile</Text>
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Icon name="logout" size={26} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
 
-      <Text style={styles.header}>👤 Profile</Text>
-
+      {/* Floating Profile Card */}
       <View style={styles.profileCard}>
-        <View style={styles.avatarWrapper}>
-          <View style={styles.avatarContainer}>
+        {/* Avatar with Edit Button */}
+        <View style={styles.avatarContainer}>
+          <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+              {user.name.charAt(0).toUpperCase()}
             </Text>
           </View>
-
-          {/* Edit Icon */}
-          <TouchableOpacity style={styles.editIcon} onPress={handleEditProfile}>
-            <Icon name="edit" size={18} color="#fff" />
+          <TouchableOpacity style={styles.editAvatarBtn} onPress={handleEditProfile}>
+            <Icon name="edit" size={18} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.name}>{user.name || "Guest User"}</Text>
+        {/* Name & Role */}
+        <Text style={styles.name}>{user.name}</Text>
         <View style={styles.roleBadge}>
           <Text style={styles.roleText}>{user.role}</Text>
         </View>
 
-        <View style={styles.infoBox}>
-          <View style={styles.infoRow}>
-            <Icon name="email" size={20} color="#007bff" />
-            <Text style={styles.infoValue}>{user.email || "Not available"}</Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Icon name="phone" size={20} color="#007bff" />
-            <Text style={styles.infoValue}>{user.phone || "Not provided"}</Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Icon name="location-on" size={20} color="#007bff" />
-            <Text style={styles.infoValue}>{user.address || "Not provided"}</Text>
-          </View>
+        {/* Info List */}
+        <View style={styles.infoContainer}>
+          <InfoRow icon="email" label="Email" value={user.email} />
+          <InfoRow icon="phone" label="Phone" value={user.phone} />
+          <InfoRow icon="location-on" label="Address" value={user.address} />
         </View>
+
+        {/* Edit Profile Button */}
+        <TouchableOpacity style={styles.editButton} onPress={handleEditProfile}>
+          <Text style={styles.editButtonText}>Edit Profile</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
+// Reusable Info Row
+const InfoRow = ({ icon, label, value }) => (
+  <View style={styles.infoRow}>
+    <View style={styles.infoLeft}>
+      <Icon name={icon} size={22} color="#0D9488" />
+      <Text style={styles.infoLabel}>{label}</Text>
+    </View>
+    <Text style={styles.infoValue} numberOfLines={2}>{value}</Text>
+  </View>
+);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f4f8ff",
-    padding: 20,
-    alignItems: "center",
+    backgroundColor: "#FFFFFF",
   },
-  logoutIcon: {
-    position: "absolute",
-    top: 40,
-    left: 20,
-  },
+
   header: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#007bff",
-    marginVertical: 25,
-    textShadowColor: "#cce0ff",
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 3,
-  },
-  profileCard: {
-    backgroundColor: "#fff",
-    width: "100%",
-    borderRadius: 20,
-    padding: 25,
-    alignItems: "center",
-    shadowColor: "#007bff",
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  avatarWrapper: {
-    position: "relative",
-    marginBottom: 10,
-  },
-  avatarContainer: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: "#eaf2ff",
-    alignItems: "center",
+    flexDirection: "row",
     justifyContent: "center",
-    borderWidth: 3,
-    borderColor: "#007bff",
+    alignItems: "center",
+    paddingTop: 60,
+    paddingBottom: 32,
+    backgroundColor: "#0D9488",
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    position: "relative",
+  },
+  headerTitle: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: -0.5,
+  },
+  logoutBtn: {
+    position: "absolute",
+    right: 32,
+    top: 64,
+    padding: 10,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 16,
+  },
+
+  profileCard: {
+    marginHorizontal: 32,
+    marginTop: -60,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 28,
+    paddingVertical: 36,
+    paddingHorizontal: 28,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 20,
+    borderWidth: 1.5,
+    borderColor: "#F1F5F9",
+  },
+
+  avatarContainer: {
+    position: "relative",
+    marginBottom: 24,
+  },
+  avatar: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: "#ECFDF5",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 8,
+    borderColor: "#FFFFFF",
+    shadowColor: "#0D9488",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 16,
   },
   avatarText: {
-    fontSize: 46,
-    fontWeight: "bold",
-    color: "#007bff",
+    fontSize: 60,
+    fontWeight: "800",
+    color: "#0D9488",
   },
-  editIcon: {
+  editAvatarBtn: {
     position: "absolute",
-    bottom: 0,
+    bottom: 8,
     right: 0,
-    backgroundColor: "#007bff",
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
+    backgroundColor: "#0D9488",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#fff",
-    shadowColor: "#007bff",
+    alignItems: "center",
+    borderWidth: 4,
+    borderColor: "#FFFFFF",
+    shadowColor: "#000",
     shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowRadius: 8,
+    elevation: 10,
   },
+
   name: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#333",
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#1E293B",
     marginBottom: 8,
   },
   roleBadge: {
-    backgroundColor: "#e8f0ff",
-    paddingVertical: 4,
-    paddingHorizontal: 15,
+    backgroundColor: "#F0FDF4",
+    paddingHorizontal: 20,
+    paddingVertical: 8,
     borderRadius: 20,
-    marginBottom: 15,
+    marginBottom: 32,
+    borderWidth: 1.5,
+    borderColor: "#BBF7D0",
   },
   roleText: {
-    color: "#007bff",
-    fontWeight: "600",
-    fontSize: 14,
+    color: "#16A34A",
+    fontSize: 15,
+    fontWeight: "700",
   },
-  infoBox: {
+
+  infoContainer: {
     width: "100%",
-    backgroundColor: "#f7faff",
-    borderRadius: 15,
-    padding: 15,
-    shadowColor: "#007bff",
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 3,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 32,
   },
   infoRow: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 10,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderColor: "#e2e6f0",
+    borderBottomColor: "#E2E8F0",
+  },
+  infoLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 16,
+    color: "#64748B",
+    fontWeight: "600",
+    marginLeft: 14,
   },
   infoValue: {
     fontSize: 16,
-    color: "#333",
-    marginLeft: 10,
+    color: "#1E293B",
+    fontWeight: "600",
+    textAlign: "right",
+    flex: 1,
+  },
+
+  editButton: {
+    backgroundColor: "#0D9488",
+    paddingHorizontal: 48,
+    paddingVertical: 18,
+    borderRadius: 16,
+    shadowColor: "#0D9488",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  editButtonText: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "700",
   },
 });
