@@ -12,7 +12,7 @@ app.use(cors());
 
 // ==================== CONNECT TO MONGODB ====================
 mongoose.connect("mongodb+srv://tayyab:12345@cluster0.7ehzawj.mongodb.net/?appName=Cluster0")
-  .then(() => console.log("✅ Connected to MongoDB"))
+  .then(() => console.log("Connected to MongoDB"))
   .catch(err => console.log("MongoDB Error:", err));
 
 // ==================== SCHEMAS & MODELS ====================
@@ -36,7 +36,6 @@ const productSchema = new mongoose.Schema({
   seller_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
 }, { timestamps: true });
 
-// ← Replace your current cartSchema with this
 const cartSchema = new mongoose.Schema({
   user_id: {
     type: mongoose.Schema.Types.ObjectId,
@@ -57,7 +56,7 @@ const cartSchema = new mongoose.Schema({
         min: 1,
       },
     }],
-    default: [], // ← This is CRITICAL for $setOnInsert to work properly
+    default: [],
   },
 }, { timestamps: true });
 
@@ -111,7 +110,7 @@ const verifyToken = (requiredRole) => (req, res, next) => {
   });
 };
 
-// ==================== ROUTES (100% SAME AS MYSQL) ====================
+// ==================== ROUTES ====================
 
 app.post("/signup", async (req, res) => {
   const { name, email, password, phone, address, role } = req.body;
@@ -135,7 +134,6 @@ app.post("/login", async (req, res) => {
 
   const token = jwt.sign({ id: user.id, role: user.role }, "secretkey", { expiresIn: "1d" });
 
-  // THIS IS THE EXACT FORMAT YOUR FRONTEND EXPECTS
   res.json({
     message: "Login successful",
     token,
@@ -144,7 +142,7 @@ app.post("/login", async (req, res) => {
     name: user.name,
     email: user.email,
     address: user.address || "",
-    phone:user.phone,
+    phone: user.phone,
   });
 });
 
@@ -159,7 +157,7 @@ app.post("/add-product", verifyToken("shopkeeper"), async (req, res) => {
     return res.status(400).json({ message: "All fields are required" });
 
   await Product.create({ ...req.body, seller_id: req.user.id });
-  res.status(201).json({ message: "✅ Product added successfully" });
+  res.status(201).json({ message: "Product added successfully" });
 });
 
 app.put("/update-product/:id", verifyToken("shopkeeper"), async (req, res) => {
@@ -167,16 +165,15 @@ app.put("/update-product/:id", verifyToken("shopkeeper"), async (req, res) => {
   if (!product) return res.status(404).json({ message: "Product not found or not owned" });
 
   await Product.updateOne({ _id: req.params.id }, req.body);
-  res.json({ message: "✅ Product updated successfully!" });
+  res.json({ message: "Product updated successfully!" });
 });
 
 app.delete("/delete-product/:id", verifyToken("shopkeeper"), async (req, res) => {
   const result = await Product.deleteOne({ _id: req.params.id, seller_id: req.user.id });
   if (result.deletedCount === 0) return res.status(404).json({ message: "Product not found" });
-  res.json({ message: "🗑️ Product deleted successfully!" });
+  res.json({ message: "Product deleted successfully!" });
 });
 
-// POST /add-to-cart  ← FINAL BULLETPROOF VERSION
 app.post("/add-to-cart", verifyToken(), async (req, res) => {
   const { product_id, quantity = 1 } = req.body;
 
@@ -188,7 +185,6 @@ app.post("/add-to-cart", verifyToken(), async (req, res) => {
     const userId = new mongoose.Types.ObjectId(req.user.id);
     const prodId = new mongoose.Types.ObjectId(product_id);
 
-    // Check product exists
     const product = await Product.findById(prodId);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -214,16 +210,13 @@ app.post("/add-to-cart", verifyToken(), async (req, res) => {
     }
 
     await cart.save();
-
-    // Populate safely
     await cart.populate({
       path: "items.product_id",
       select: "name price image_url stock"
     });
 
-    // THIS IS THE KEY: 100% SAFE MAPPING (NO MORE NULL ERRORS EVER)
     const cartItems = cart.items
-      .filter(item => item.product_id !== null)  // Remove deleted products
+      .filter(item => item.product_id !== null)
       .map(item => ({
         id: item._id.toString(),
         product_id: item.product_id._id.toString(),
@@ -234,7 +227,6 @@ app.post("/add-to-cart", verifyToken(), async (req, res) => {
         stock: item.product_id.stock || 0,
       }));
 
-    // Auto-clean deleted products from cart
     if (cart.items.length !== cartItems.length) {
       await Cart.updateOne(
         { user_id: userId },
@@ -257,7 +249,7 @@ app.post("/add-to-cart", verifyToken(), async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
-// 2. GET CART (Clean format)
+
 app.get("/cart", verifyToken(), async (req, res) => {
   try {
     const userId = new mongoose.Types.ObjectId(req.user.id);
@@ -280,7 +272,6 @@ app.get("/cart", verifyToken(), async (req, res) => {
         quantity: item.quantity,
       }));
 
-    // Clean up null items
     if (cart.items.length !== items.length) {
       await Cart.updateOne(
         { user_id: userId },
@@ -294,14 +285,13 @@ app.get("/cart", verifyToken(), async (req, res) => {
     res.status(500).json({ message: "Error fetching cart" });
   }
 });
-// 3. UPDATE QUANTITY
+
 app.put("/cart/update", verifyToken(), async (req, res) => {
   try {
     const { itemId, quantity } = req.body;
     const userId = new mongoose.Types.ObjectId(req.user.id);
 
     if (quantity < 1) {
-      // Remove if quantity becomes 0
       await Cart.updateOne(
         { user_id: userId },
         { $pull: { items: { _id: itemId } } }
@@ -319,7 +309,6 @@ app.put("/cart/update", verifyToken(), async (req, res) => {
   }
 });
 
-// 4. REMOVE ITEM
 app.delete("/cart/item", verifyToken(), async (req, res) => {
   try {
     const { itemId } = req.body;
@@ -336,10 +325,8 @@ app.delete("/cart/item", verifyToken(), async (req, res) => {
   }
 });
 
-// 5. PLACE ORDER & CLEAR CART
-// 
 app.post("/place-order", verifyToken(), async (req, res) => {
-  console.log("[/place-order] Request received"); // ← Route init log
+  console.log("[/place-order] Request received");
   console.log("User ID from token:", req.user?.id);
   console.log("Request body:", req.body);
 
@@ -361,7 +348,6 @@ app.post("/place-order", verifyToken(), async (req, res) => {
     }
     console.log("User found:", { name: user.name, email: user.email });
 
-    // Create order
     const order = await Order.create({
       user_id: userId,
       total_amount,
@@ -373,8 +359,8 @@ app.post("/place-order", verifyToken(), async (req, res) => {
         address: user.address || "",
       },
       items: items.map((i) => ({
-        product_id: i.product_id,
-        product_name: i.name,
+        product_id: new mongoose.Types.ObjectId(i.product_id),
+        product_name:i.name,
         price: i.price,
         quantity: i.quantity,
         image_url: i.image_url,
@@ -383,7 +369,6 @@ app.post("/place-order", verifyToken(), async (req, res) => {
 
     console.log("Order created successfully:", order._id);
 
-    // THIS IS THE FIX — CLEAR THE CART
     const cartUpdateResult = await Cart.updateOne(
       { user_id: userId },
       { $set: { items: [] } }
@@ -393,10 +378,6 @@ app.post("/place-order", verifyToken(), async (req, res) => {
       matchedCount: cartUpdateResult.matchedCount,
       modifiedCount: cartUpdateResult.modifiedCount,
     });
-
-    // Optional: delete entire cart document
-    // await Cart.deleteOne({ user_id: userId });
-    // console.log("Cart document deleted for user:", userId);
 
     console.log("Order placed & cart cleared → Sending success response");
 
@@ -411,6 +392,7 @@ app.post("/place-order", verifyToken(), async (req, res) => {
     res.status(500).json({ message: "Failed to place order" });
   }
 });
+
 app.get("/orders", verifyToken("shopkeeper"), async (req, res) => {
   try {
     const sellerId = req.user.id;
@@ -430,7 +412,7 @@ app.get("/orders", verifyToken("shopkeeper"), async (req, res) => {
       {
         $group: {
           _id: "$_id",
-          order_id: { $first: "$_id" }, // FIXED
+          order_id: { $first: "$_id" },
           customer_name: { $first: "$customer.name" },
           customer_phone: { $first: "$customer.phone" },
           customer_address: { $first: "$customer.address" },
@@ -450,7 +432,6 @@ app.get("/orders", verifyToken("shopkeeper"), async (req, res) => {
       { $sort: { order_date: -1 } }
     ]);
 
-    // Convert order_id to string
     const formattedOrders = orders.map(o => ({ ...o, order_id: o.order_id.toString() }));
 
     res.json(formattedOrders);
@@ -461,139 +442,111 @@ app.get("/orders", verifyToken("shopkeeper"), async (req, res) => {
   }
 });
 
-// ==================== ORDER DETAILS & MANAGEMENT ====================
-
-// GET SINGLE ORDER DETAILS - FULLY POPULATED
+// FIXED: Removed invalid .populate("customer") — this was breaking everything
 app.get("/order/:orderId", verifyToken(), async (req, res) => {
-  console.log("🟡 GET ORDER DETAILS - Order ID:", req.params.orderId);
+  console.log("GET ORDER DETAILS - Order ID:", req.params.orderId);
 
   try {
-    // Populate product info for each item
     const order = await Order.findById(req.params.orderId)
       .populate({
         path: "items.product_id",
         select: "name image_url"
-      })
-      .populate({
-        path: "customer",
-        select: "name email phone address"
       });
 
     if (!order) {
-      console.log("❌ ORDER NOT FOUND");
+      console.log("ORDER NOT FOUND");
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // Transform order for frontend
     const transformedOrder = {
-      id: order._id.toString(),             // Use _id as order ID
-      customer_name: order.customer?.name || "N/A",
-      email: order.customer?.email || "No email",
-      phone: order.customer?.phone || "No phone",
-      address: order.customer?.address || "Not provided",
+      id: order.id,
+      customer_name: order.customer.name || "N/A",
+      email: order.customer.email || "No email",
+      phone: order.customer.phone || "No phone",
+      address: order.customer.address || "Not provided",
       total_amount: order.total_amount || 0,
       status: order.status || "Pending",
       order_date: order.order_date || order.createdAt,
       items: order.items.map(item => ({
         id: item._id.toString(),
-        product_name: item.product_id?.name || "Unnamed Product",
-        product_image: item.product_id?.image_url || "",
-        quantity: item.quantity || 1,
+        product_name: item.product_id?.name || item.product_name || "Unnamed Product",
+
+        product_image: item.product_id?.image_url || item.image_url || "",
         price: item.price || 0,
+        quantity: item.quantity || 1,
         subtotal: (item.price || 0) * (item.quantity || 1)
       }))
     };
 
-    console.log("📦 TRANSFORMED ORDER:", transformedOrder);
+    console.log("TRANSFORMED ORDER:", transformedOrder);
     res.json(transformedOrder);
 
   } catch (err) {
-    console.error("❌ GET ORDER ERROR:", err.message);
+    console.error("GET ORDER ERROR:", err.message);
     res.status(500).json({ message: "Failed to fetch order" });
   }
 });
 
-
-// UPDATE ORDER STATUS - FIXED VERSION
 app.put("/update-order/:orderId", verifyToken(), async (req, res) => {
-  console.log("🟡 UPDATE ORDER STATUS - Order ID:", req.params.orderId);
+  console.log("UPDATE ORDER STATUS - Order ID:", req.params.orderId);
   console.log("New Status:", req.body.status);
   
   try {
-    const order = await Order.findById(req.params.orderId);
-    
-    if (!order) {
-      console.log("❌ ORDER NOT FOUND FOR UPDATE");
-      return res.status(404).json({ message: "Order not found" });
-    }
-
     const result = await Order.updateOne(
       { _id: req.params.orderId }, 
       { $set: { status: req.body.status } }
     );
 
-    console.log("✅ ORDER STATUS UPDATED to:", req.body.status);
-    console.log("Update result:", result);
-    
-    res.json({ 
-      success: true, 
-      message: `Order status updated to ${req.body.status}` 
-    });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    console.log("ORDER STATUS UPDATED to:", req.body.status);
+    res.json({ success: true, message: `Order status updated to ${req.body.status}` });
     
   } catch (err) {
-    console.error("❌ UPDATE ORDER ERROR:", err.message);
+    console.error("UPDATE ORDER ERROR:", err.message);
     res.status(500).json({ message: "Failed to update order" });
   }
 });
 
-// DELETE ORDER - FIXED VERSION
 app.delete("/delete-order/:orderId", verifyToken(), async (req, res) => {
-  console.log("🟡 DELETE ORDER - Order ID:", req.params.orderId);
+  console.log("DELETE ORDER - Order ID:", req.params.orderId);
   
   try {
     const result = await Order.deleteOne({ _id: req.params.orderId });
     
     if (result.deletedCount === 0) {
-      console.log("❌ ORDER NOT FOUND FOR DELETION");
       return res.status(404).json({ message: "Order not found" });
     }
 
-    console.log("✅ ORDER DELETED SUCCESSFULLY");
-    res.json({ 
-      success: true, 
-      message: "Order deleted successfully" 
-    });
+    console.log("ORDER DELETED SUCCESSFULLY");
+    res.json({ success: true, message: "Order deleted successfully" });
     
   } catch (err) {
-    console.error("❌ DELETE ORDER ERROR:", err.message);
+    console.error("DELETE ORDER ERROR:", err.message);
     res.status(500).json({ message: "Failed to delete order" });
   }
 });
 
-// DELETE ORDER ITEM - FIXED VERSION
 app.delete("/order-item/:orderItemId", verifyToken(), async (req, res) => {
-  console.log("🟡 DELETE ORDER ITEM - Item ID:", req.params.orderItemId);
+  console.log("DELETE ORDER ITEM - Item ID:", req.params.orderItemId);
   
   try {
-    // Since items are embedded, we need to find the order and update it
     const result = await Order.updateOne(
       { "items._id": req.params.orderItemId },
       { $pull: { items: { _id: req.params.orderItemId } } }
     );
 
     if (result.modifiedCount === 0) {
-      console.log("❌ ORDER ITEM NOT FOUND");
       return res.status(404).json({ message: "Order item not found" });
     }
 
-    console.log("✅ ORDER ITEM DELETED");
-    res.json({ 
-      success: true, 
-      message: "Item removed from order" 
-    });
+    console.log("ORDER ITEM DELETED");
+    res.json({ success: true, message: "Item removed from order" });
     
   } catch (err) {
-    console.error("❌ DELETE ORDER ITEM ERROR:", err.message);
+    console.error("DELETE ORDER ITEM ERROR:", err.message);
     res.status(500).json({ message: "Failed to remove item" });
   }
 });
@@ -609,6 +562,6 @@ app.put("/profile/:id", async (req, res) => {
   res.json({ message: "Profile updated successfully!" });
 });
 
-app.get("/", (req, res) => res.send("✅ E-Commerce MongoDB Server Running..."));
+app.get("/", (req, res) => res.send("E-Commerce MongoDB Server Running..."));
 
-app.listen(5000, () => console.log("🚀 Server running on http://localhost:5000"));
+app.listen(5000, () => console.log("Server running on http://localhost:5000"));
