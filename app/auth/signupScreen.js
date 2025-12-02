@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import api from "../api/api";
+
 
 export default function SignupScreen({ navigation }) {
   const [form, setForm] = useState({

@@ -11,10 +11,7 @@ app.use(express.json());
 app.use(cors());
 
 // ==================== CONNECT TO MONGODB ====================
-const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://tayyab:12345@cluster0.7ehzawj.mongodb.net/?appName=Cluster0";
-
-mongoose.connect(MONGO_URI)
+mongoose.connect("mongodb+srv://tayyab:12345@cluster0.7ehzawj.mongodb.net/?appName=Cluster0")
   .then(() => console.log("Connected to MongoDB"))
   .catch(err => console.log("MongoDB Error:", err));
 
@@ -566,8 +563,5 @@ app.put("/profile/:id", async (req, res) => {
 });
 
 app.get("/", (req, res) => res.send("E-Commerce MongoDB Server Running..."));
-if (process.env.NODE_ENV !== 'vercel') {
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-};
+
+app.listen(5000, () => console.log("Server running on http://localhost:5000"));

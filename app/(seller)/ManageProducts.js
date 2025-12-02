@@ -1,9 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
 import {
-  Alert,
   FlatList,
   Image,
+  Modal,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -14,6 +15,9 @@ import {
 export default function ManageProducts({ navigation }) {
   const [products, setProducts] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [productToDelete, setProductToDelete] = useState(null);
+
   const baseUrl = "http://localhost:5000";
 
   const fetchProducts = async () => {
@@ -31,33 +35,35 @@ export default function ManageProducts({ navigation }) {
     }
   };
 
-  const deleteProduct = async (id) => {
-    Alert.alert(
-      "Delete Product",
-      "This action cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const token = await AsyncStorage.getItem("token");
-              const res = await fetch(`${baseUrl}/delete-product/${id}`, {
-                method: "DELETE",
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              if (res.ok) {
-                Alert.alert("Success", "Product deleted successfully");
-                fetchProducts();
-              }
-            } catch (err) {
-              Alert.alert("Error", "Failed to delete product");
-            }
-          },
-        },
-      ]
-    );
+  const openDeleteModal = (id) => {
+    setProductToDelete(id);
+    setDeleteModalVisible(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!productToDelete) return;
+
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const res = await fetch(`${baseUrl}/delete-product/${productToDelete}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        // Simple success feedback can be added here if you want
+        setProducts((prev) => prev.filter((p) => p.id !== productToDelete));
+      }
+    } catch (err) {
+      console.log("Delete error:", err);
+    } finally {
+      setDeleteModalVisible(false);
+      setProductToDelete(null);
+    }
+  };
+
+  const cancelDelete = () => {
+    setDeleteModalVisible(false);
+    setProductToDelete(null);
   };
 
   useEffect(() => {
@@ -113,7 +119,10 @@ export default function ManageProducts({ navigation }) {
         >
           <Text style={styles.editText}>Edit</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteProduct(item.id)}>
+        <TouchableOpacity
+          style={styles.deleteBtn}
+          onPress={() => openDeleteModal(item.id)}
+        >
           <Text style={styles.deleteText}>Delete</Text>
         </TouchableOpacity>
       </View>
@@ -134,8 +143,8 @@ export default function ManageProducts({ navigation }) {
         data={products}
         renderItem={renderItem}
         keyExtractor={(item) => item.id.toString()}
-        numColumns={2}                          // Fixed
-        columnWrapperStyle={styles.row}         // Spacing between rows
+        numColumns={2}
+        columnWrapperStyle={styles.row}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 20 }}
         refreshControl={
@@ -161,10 +170,37 @@ export default function ManageProducts({ navigation }) {
           </View>
         }
       />
+
+      {/* Custom Delete Confirmation Modal */}
+      <Modal
+        transparent={true}
+        visible={deleteModalVisible}
+        animationType="fade"
+        onRequestClose={cancelDelete}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Delete Product</Text>
+            <Text style={styles.modalMessage}>
+              This action cannot be undone. Are you sure you want to delete this product?
+            </Text>
+
+            <View style={styles.modalButtons}>
+              <Pressable style={styles.modalCancelBtn} onPress={cancelDelete}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.modalDeleteBtn} onPress={confirmDelete}>
+                <Text style={styles.modalDeleteText}>Delete</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
+/* ------------------- Existing styles + new modal styles ------------------- */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF" },
 
@@ -322,6 +358,70 @@ const styles = StyleSheet.create({
   addFirstText: {
     color: "#FFFFFF",
     fontSize: 18,
+    fontWeight: "700",
+  },
+
+  /* ---------- Custom Modal Styles ---------- */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: "85%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#1E293B",
+    marginBottom: 12,
+  },
+  modalMessage: {
+    fontSize: 16,
+    color: "#64748B",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 28,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    width: "100%",
+    justifyContent: "space-between",
+  },
+  modalCancelBtn: {
+    flex: 1,
+    backgroundColor: "#E2E8F0",
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginRight: 10,
+    alignItems: "center",
+  },
+  modalDeleteBtn: {
+    flex: 1,
+    backgroundColor: "#EF4444",
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginLeft: 10,
+    alignItems: "center",
+  },
+  modalCancelText: {
+    color: "#1E293B",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  modalDeleteText: {
+    color: "#FFFFFF",
+    fontSize: 16,
     fontWeight: "700",
   },
 });
