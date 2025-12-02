@@ -17,6 +17,25 @@ const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://tayyab:12345@cluster0.
 mongoose.connect(MONGO_URI)
   .then(() => console.log("Connected to MongoDB"))
   .catch(err => console.log("MongoDB Error:", err));
+  const corsOptions = {
+  origin: [
+    'http://localhost:8081', // React Native iOS
+    'http://localhost:8082', // React Native Android
+    'http://localhost:19006', // Expo web
+    'https://your-frontend.vercel.app', // Your frontend (if any)
+    'exp://your-expo-app-url', // Expo app
+  ],
+  credentials: true,
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
+// Update CORS to be more permissive during development
+app.use(cors({
+  origin: '*', // For development only
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // ==================== SCHEMAS & MODELS ====================
 const userSchema = new mongoose.Schema({
@@ -566,12 +585,12 @@ app.put("/profile/:id", async (req, res) => {
 });
 
 app.get("/", (req, res) => res.send("E-Commerce MongoDB Server Running..."));
- if(!process.env.VERCEL && !process.env.NETLIFY) {
-  app.listen(Port, () => {
-    console.log(`🚀 Server Live on Port ${serverPort}`);
+// At the end of server.js, fix this:
+if(!process.env.VERCEL && !process.env.NETLIFY) {
+  app.listen(PORT, () => {  // Changed "Port" to "PORT"
+    console.log(`🚀 Server Live on Port ${PORT}`);
     console.log(`🌐 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
   });
 }
 
-// Export for serverless platforms (Vercel, Netlify Functions)
-module.exports = app
+module.exports = app;
