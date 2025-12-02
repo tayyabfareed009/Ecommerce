@@ -1,3 +1,4 @@
+import { API_URL } from "..config";
 import { useState } from "react";
 import {
   Alert,
@@ -8,7 +9,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
 export default function Signup({ navigation }) {
   const [user, setUser] = useState({
     name: "",
@@ -26,7 +26,7 @@ export default function Signup({ navigation }) {
     }
 
     try {
-      const res = await fetch("http://localhost:5000/signup", {
+      const res = await fetch(`${API_URL}/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(user),

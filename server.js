@@ -8,34 +8,33 @@ require("dotenv").config();
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+
+// ==================== CORS CONFIGURATION ====================
+// SINGLE CORS middleware - Remove duplicate calls
+const corsOptions = {
+  origin: [
+    'http://localhost:8081', // React Native iOS
+    'http://localhost:8082', // React Native Android
+    'http://localhost:19006', // Expo web
+    'exp://*', // Expo app
+    '*', // Allow all for now
+  ],
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle preflight requests
 
 // ==================== CONNECT TO MONGODB ====================
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://tayyab:12345@cluster0.7ehzawj.mongodb.net/?appName=Cluster0";
 
 mongoose.connect(MONGO_URI)
-  .then(() => console.log("Connected to MongoDB"))
-  .catch(err => console.log("MongoDB Error:", err));
-  const corsOptions = {
-  origin: [
-    'http://localhost:8081', // React Native iOS
-    'http://localhost:8082', // React Native Android
-    'http://localhost:19006', // Expo web
-    'https://your-frontend.vercel.app', // Your frontend (if any)
-    'exp://your-expo-app-url', // Expo app
-  ],
-  credentials: true,
-  optionsSuccessStatus: 200,
-};
-
-app.use(cors(corsOptions));
-// Update CORS to be more permissive during development
-app.use(cors({
-  origin: '*', // For development only
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  .then(() => console.log("✅ Connected to MongoDB"))
+  .catch(err => console.log("❌ MongoDB Error:", err));
 
 // ==================== SCHEMAS & MODELS ====================
 const userSchema = new mongoose.Schema({
@@ -120,13 +119,28 @@ const Order = mongoose.model("Order", orderSchema);
 
 // ==================== JWT MIDDLEWARE ====================
 const verifyToken = (requiredRole) => (req, res, next) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ message: "Access denied. No token provided." });
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader) {
+    return res.status(401).json({ message: "Access denied. No token provided." });
+  }
+
+  const token = authHeader.split(" ")[1];
+  
+  if (!token) {
+    return res.status(401).json({ message: "Access denied. No token provided." });
+  }
 
   jwt.verify(token, "secretkey", (err, decoded) => {
-    if (err) return res.status(401).json({ message: "Invalid token" });
-    if (requiredRole && decoded.role !== requiredRole)
+    if (err) {
+      console.log("JWT Verification Error:", err);
+      return res.status(401).json({ message: "Invalid token" });
+    }
+    
+    if (requiredRole && decoded.role !== requiredRole) {
       return res.status(403).json({ message: "Access denied. Not authorized." });
+    }
+    
     req.user = decoded;
     next();
   });
@@ -135,75 +149,155 @@ const verifyToken = (requiredRole) => (req, res, next) => {
 // ==================== ROUTES ====================
 
 app.post("/signup", async (req, res) => {
-  const { name, email, password, phone, address, role } = req.body;
-  if (!name || !email || !password || !role) return res.status(400).json({ message: "All required fields must be provided" });
+  try {
+    const { name, email, password, phone, address, role } = req.body;
+    
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({ message: "All required fields must be provided" });
+    }
 
-  const exists = await User.findOne({ email });
-  if (exists) return res.status(400).json({ message: "Email already registered" });
+    const exists = await User.findOne({ email });
+    if (exists) return res.status(400).json({ message: "Email already registered" });
 
-  const hashed = await bcrypt.hash(password, 10);
-  await User.create({ name, email, password: hashed, phone, address, role });
-  res.status(201).json({ message: "User registered successfully!" });
+    const hashed = await bcrypt.hash(password, 10);
+    await User.create({ name, email, password: hashed, phone, address, role });
+    
+    res.status(201).json({ 
+      success: true,
+      message: "User registered successfully!" 
+    });
+  } catch (error) {
+    console.error("Signup error:", error);
+    res.status(500).json({ message: "Server error during signup" });
+  }
 });
 
 app.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const user = await User.findOne({ email });
-  if (!user || !(await bcrypt.compare(password, user.password))) {
-    return res.status(400).json({ message: "Invalid credentials" });
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password are required" });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const token = jwt.sign({ 
+      id: user.id, 
+      role: user.role,
+      email: user.email 
+    }, "secretkey", { expiresIn: "1d" });
+
+    res.json({
+      success: true,
+      message: "Login successful",
+      token,
+      id: user.id,
+      role: user.role,
+      name: user.name,
+      email: user.email,
+      address: user.address || "",
+      phone: user.phone || "",
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ message: "Server error during login" });
   }
-
-  const token = jwt.sign({ id: user.id, role: user.role }, "secretkey", { expiresIn: "1d" });
-
-  res.json({
-    message: "Login successful",
-    token,
-    id: user.id,
-    role: user.role,
-    name: user.name,
-    email: user.email,
-    address: user.address || "",
-    phone: user.phone,
-  });
 });
 
 app.get("/products", async (req, res) => {
-  const products = await Product.find();
-  res.json(products);
+  try {
+    const products = await Product.find();
+    res.json(products);
+  } catch (error) {
+    console.error("Products error:", error);
+    res.status(500).json({ message: "Failed to fetch products" });
+  }
 });
 
 app.post("/add-product", verifyToken("shopkeeper"), async (req, res) => {
-  const { name, price, description, image_url, category, stock } = req.body;
-  if (!name || !price || !description || !image_url || !category || !stock)
-    return res.status(400).json({ message: "All fields are required" });
+  try {
+    const { name, price, description, image_url, category, stock } = req.body;
+    
+    if (!name || !price || !description || !image_url || !category || !stock) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
 
-  await Product.create({ ...req.body, seller_id: req.user.id });
-  res.status(201).json({ message: "Product added successfully" });
+    await Product.create({ 
+      ...req.body, 
+      seller_id: req.user.id 
+    });
+    
+    res.status(201).json({ 
+      success: true,
+      message: "Product added successfully" 
+    });
+  } catch (error) {
+    console.error("Add product error:", error);
+    res.status(500).json({ message: "Failed to add product" });
+  }
 });
 
 app.put("/update-product/:id", verifyToken("shopkeeper"), async (req, res) => {
-  const product = await Product.findOne({ _id: req.params.id, seller_id: req.user.id });
-  if (!product) return res.status(404).json({ message: "Product not found or not owned" });
+  try {
+    const product = await Product.findOne({ 
+      _id: req.params.id, 
+      seller_id: req.user.id 
+    });
+    
+    if (!product) {
+      return res.status(404).json({ message: "Product not found or not owned" });
+    }
 
-  await Product.updateOne({ _id: req.params.id }, req.body);
-  res.json({ message: "Product updated successfully!" });
+    await Product.updateOne({ _id: req.params.id }, req.body);
+    
+    res.json({ 
+      success: true,
+      message: "Product updated successfully!" 
+    });
+  } catch (error) {
+    console.error("Update product error:", error);
+    res.status(500).json({ message: "Failed to update product" });
+  }
 });
 
 app.delete("/delete-product/:id", verifyToken("shopkeeper"), async (req, res) => {
-  const result = await Product.deleteOne({ _id: req.params.id, seller_id: req.user.id });
-  if (result.deletedCount === 0) return res.status(404).json({ message: "Product not found" });
-  res.json({ message: "Product deleted successfully!" });
+  try {
+    const result = await Product.deleteOne({ 
+      _id: req.params.id, 
+      seller_id: req.user.id 
+    });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+    
+    res.json({ 
+      success: true,
+      message: "Product deleted successfully!" 
+    });
+  } catch (error) {
+    console.error("Delete product error:", error);
+    res.status(500).json({ message: "Failed to delete product" });
+  }
 });
 
 app.post("/add-to-cart", verifyToken(), async (req, res) => {
-  const { product_id, quantity = 1 } = req.body;
-
-  if (!product_id || !mongoose.Types.ObjectId.isValid(product_id)) {
-    return res.status(400).json({ message: "Invalid product ID" });
-  }
-
   try {
+    const { product_id, quantity = 1 } = req.body;
+
+    if (!product_id || !mongoose.Types.ObjectId.isValid(product_id)) {
+      return res.status(400).json({ message: "Invalid product ID" });
+    }
+
     const userId = new mongoose.Types.ObjectId(req.user.id);
     const prodId = new mongoose.Types.ObjectId(product_id);
 
@@ -258,7 +352,7 @@ app.post("/add-to-cart", verifyToken(), async (req, res) => {
 
     const totalPrice = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-    return res.json({
+    res.json({
       success: true,
       message: "Added to cart!",
       cart: cartItems,
@@ -266,9 +360,9 @@ app.post("/add-to-cart", verifyToken(), async (req, res) => {
       totalPrice
     });
 
-  } catch (err) {
-    console.error("Add to cart error:", err);
-    return res.status(500).json({ message: "Server error" });
+  } catch (error) {
+    console.error("Add to cart error:", error);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -302,8 +396,8 @@ app.get("/cart", verifyToken(), async (req, res) => {
     }
 
     res.json(items);
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error("Cart error:", error);
     res.status(500).json({ message: "Error fetching cart" });
   }
 });
@@ -326,7 +420,8 @@ app.put("/cart/update", verifyToken(), async (req, res) => {
     }
 
     res.json({ success: true });
-  } catch (err) {
+  } catch (error) {
+    console.error("Cart update error:", error);
     res.status(500).json({ error: "Update failed" });
   }
 });
@@ -342,33 +437,26 @@ app.delete("/cart/item", verifyToken(), async (req, res) => {
     );
 
     res.json({ success: true });
-  } catch (err) {
+  } catch (error) {
+    console.error("Cart item delete error:", error);
     res.status(500).json({ error: "Failed to remove" });
   }
 });
 
 app.post("/place-order", verifyToken(), async (req, res) => {
-  console.log("[/place-order] Request received");
-  console.log("User ID from token:", req.user?.id);
-  console.log("Request body:", req.body);
-
   try {
     const { total_amount, items } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
-      console.log("Cart is empty or items missing");
       return res.status(400).json({ message: "Cart is empty" });
     }
 
     const userId = new mongoose.Types.ObjectId(req.user.id);
-    console.log("Converted userId (ObjectId):", userId);
-
     const user = await User.findById(userId);
+    
     if (!user) {
-      console.log("User not found for ID:", userId);
       return res.status(404).json({ message: "User not found" });
     }
-    console.log("User found:", { name: user.name, email: user.email });
 
     const order = await Order.create({
       user_id: userId,
@@ -382,26 +470,17 @@ app.post("/place-order", verifyToken(), async (req, res) => {
       },
       items: items.map((i) => ({
         product_id: new mongoose.Types.ObjectId(i.product_id),
-        product_name:i.name,
+        product_name: i.name,
         price: i.price,
         quantity: i.quantity,
         image_url: i.image_url,
       })),
     });
 
-    console.log("Order created successfully:", order._id);
-
-    const cartUpdateResult = await Cart.updateOne(
+    await Cart.updateOne(
       { user_id: userId },
       { $set: { items: [] } }
     );
-
-    console.log("Cart clear result:", {
-      matchedCount: cartUpdateResult.matchedCount,
-      modifiedCount: cartUpdateResult.modifiedCount,
-    });
-
-    console.log("Order placed & cart cleared → Sending success response");
 
     res.json({
       success: true,
@@ -409,8 +488,8 @@ app.post("/place-order", verifyToken(), async (req, res) => {
       orderId: order._id.toString(),
     });
 
-  } catch (err) {
-    console.error("Place order error:", err);
+  } catch (error) {
+    console.error("Place order error:", error);
     res.status(500).json({ message: "Failed to place order" });
   }
 });
@@ -454,20 +533,20 @@ app.get("/orders", verifyToken("shopkeeper"), async (req, res) => {
       { $sort: { order_date: -1 } }
     ]);
 
-    const formattedOrders = orders.map(o => ({ ...o, order_id: o.order_id.toString() }));
+    const formattedOrders = orders.map(o => ({ 
+      ...o, 
+      order_id: o.order_id.toString() 
+    }));
 
     res.json(formattedOrders);
 
-  } catch (err) {
-    console.error("Error fetching seller orders:", err.message);
-    res.status(500).json({ message: "Server error", error: err.message });
+  } catch (error) {
+    console.error("Error fetching seller orders:", error);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
-// FIXED: Removed invalid .populate("customer") — this was breaking everything
 app.get("/order/:orderId", verifyToken(), async (req, res) => {
-  console.log("GET ORDER DETAILS - Order ID:", req.params.orderId);
-
   try {
     const order = await Order.findById(req.params.orderId)
       .populate({
@@ -476,7 +555,6 @@ app.get("/order/:orderId", verifyToken(), async (req, res) => {
       });
 
     if (!order) {
-      console.log("ORDER NOT FOUND");
       return res.status(404).json({ message: "Order not found" });
     }
 
@@ -492,7 +570,6 @@ app.get("/order/:orderId", verifyToken(), async (req, res) => {
       items: order.items.map(item => ({
         id: item._id.toString(),
         product_name: item.product_id?.name || item.product_name || "Unnamed Product",
-
         product_image: item.product_id?.image_url || item.image_url || "",
         price: item.price || 0,
         quantity: item.quantity || 1,
@@ -500,19 +577,15 @@ app.get("/order/:orderId", verifyToken(), async (req, res) => {
       }))
     };
 
-    console.log("TRANSFORMED ORDER:", transformedOrder);
     res.json(transformedOrder);
 
-  } catch (err) {
-    console.error("GET ORDER ERROR:", err.message);
+  } catch (error) {
+    console.error("GET ORDER ERROR:", error);
     res.status(500).json({ message: "Failed to fetch order" });
   }
 });
 
 app.put("/update-order/:orderId", verifyToken(), async (req, res) => {
-  console.log("UPDATE ORDER STATUS - Order ID:", req.params.orderId);
-  console.log("New Status:", req.body.status);
-  
   try {
     const result = await Order.updateOne(
       { _id: req.params.orderId }, 
@@ -523,18 +596,18 @@ app.put("/update-order/:orderId", verifyToken(), async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    console.log("ORDER STATUS UPDATED to:", req.body.status);
-    res.json({ success: true, message: `Order status updated to ${req.body.status}` });
+    res.json({ 
+      success: true, 
+      message: `Order status updated to ${req.body.status}` 
+    });
     
-  } catch (err) {
-    console.error("UPDATE ORDER ERROR:", err.message);
+  } catch (error) {
+    console.error("UPDATE ORDER ERROR:", error);
     res.status(500).json({ message: "Failed to update order" });
   }
 });
 
 app.delete("/delete-order/:orderId", verifyToken(), async (req, res) => {
-  console.log("DELETE ORDER - Order ID:", req.params.orderId);
-  
   try {
     const result = await Order.deleteOne({ _id: req.params.orderId });
     
@@ -542,18 +615,18 @@ app.delete("/delete-order/:orderId", verifyToken(), async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    console.log("ORDER DELETED SUCCESSFULLY");
-    res.json({ success: true, message: "Order deleted successfully" });
+    res.json({ 
+      success: true, 
+      message: "Order deleted successfully" 
+    });
     
-  } catch (err) {
-    console.error("DELETE ORDER ERROR:", err.message);
+  } catch (error) {
+    console.error("DELETE ORDER ERROR:", error);
     res.status(500).json({ message: "Failed to delete order" });
   }
 });
 
 app.delete("/order-item/:orderItemId", verifyToken(), async (req, res) => {
-  console.log("DELETE ORDER ITEM - Item ID:", req.params.orderItemId);
-  
   try {
     const result = await Order.updateOne(
       { "items._id": req.params.orderItemId },
@@ -564,33 +637,54 @@ app.delete("/order-item/:orderItemId", verifyToken(), async (req, res) => {
       return res.status(404).json({ message: "Order item not found" });
     }
 
-    console.log("ORDER ITEM DELETED");
-    res.json({ success: true, message: "Item removed from order" });
+    res.json({ 
+      success: true, 
+      message: "Item removed from order" 
+    });
     
-  } catch (err) {
-    console.error("DELETE ORDER ITEM ERROR:", err.message);
+  } catch (error) {
+    console.error("DELETE ORDER ITEM ERROR:", error);
     res.status(500).json({ message: "Failed to remove item" });
   }
 });
 
 app.get("/profile/:id", async (req, res) => {
-  const user = await User.findById(req.params.id);
-  if (!user) return res.status(404).json({ message: "User not found" });
-  res.json(user);
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json(user);
+  } catch (error) {
+    console.error("Profile error:", error);
+    res.status(500).json({ message: "Failed to fetch profile" });
+  }
 });
 
 app.put("/profile/:id", async (req, res) => {
-  await User.updateOne({ _id: req.params.id }, req.body);
-  res.json({ message: "Profile updated successfully!" });
+  try {
+    await User.updateOne({ _id: req.params.id }, req.body);
+    res.json({ 
+      success: true,
+      message: "Profile updated successfully!" 
+    });
+  } catch (error) {
+    console.error("Profile update error:", error);
+    res.status(500).json({ message: "Failed to update profile" });
+  }
 });
 
-app.get("/", (req, res) => res.send("E-Commerce MongoDB Server Running..."));
-// At the end of server.js, fix this:
-if(!process.env.VERCEL && !process.env.NETLIFY) {
-  app.listen(PORT, () => {  // Changed "Port" to "PORT"
+app.get("/", (req, res) => {
+  res.send("✅ E-Commerce MongoDB Server Running...");
+});
+
+// ==================== START SERVER ====================
+// For Vercel deployment
+module.exports = app;
+
+// For local development
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
     console.log(`🚀 Server Live on Port ${PORT}`);
     console.log(`🌐 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
   });
 }
-
-module.exports = app;

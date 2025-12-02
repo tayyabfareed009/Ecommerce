@@ -1,3 +1,4 @@
+import { API_URL } from "..config";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useState } from "react";
 import {
@@ -20,7 +21,7 @@ export default function LoginScreen({ navigation }) {
     }
     try {
       console.log("Sending login request to backend...");
-      const response = await fetch("https://ecommerce-sage-kappa-45.vercel.app/api/login", {
+      const response = await fetch(`${API_URL}}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
