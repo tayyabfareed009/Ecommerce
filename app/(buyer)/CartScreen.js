@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -30,59 +30,62 @@ export default function CartScreen() {
     return Platform.OS === "ios" ? "http://localhost:5000" : "http://10.0.2.2:5000";
   })();
 
-  // CUSTOM MODAL (WORKS ON WEB TOO!)
+  // CUSTOM MODAL (Works on Web too!)
   const showModal = (title, message, buttons = []) => {
     setModalConfig({ title, message, buttons });
     setModalVisible(true);
   };
 
- const CustomModal = () => (
-  <Modal visible={modalVisible} transparent animationType="fade">
-    <View style={styles.modalOverlay}>
-      <View style={styles.modalContent}>
-        <Text style={styles.modalTitle}>{modalConfig.title}</Text>
-        <Text style={styles.modalMessage}>{modalConfig.message}</Text> {/* Fixed this line */}
+  const CustomModal = () => (
+    <Modal visible={modalVisible} transparent animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>{modalConfig.title}</Text>
+          <Text style={styles.modalMessage}>{modalConfig.message}</Text>
 
-        <View style={styles.modalButtons}>
-          {modalConfig.buttons?.map((btn, index) => (
-            <TouchableOpacity
-              key={index}
-              style={[
-                styles.modalBtn,
-                btn.style === "destructive" && styles.destructiveBtn,
-                btn.style === "cancel" && styles.cancelBtn,
-                // PRIMARY BUTTON (Place Order / OK / Remove) → Teal color
-                !btn.style || btn.style === "default" ? styles.primaryBtn : null,
-              ]}
-              onPress={() => {
-                setModalVisible(false);
-                btn.onPress?.();
-              }}
-            >
-              <Text style={[
-                styles.modalBtnText,
-                // Make text white for primary button
-                (!btn.style || btn.style === "default") && { color: "#fff" }
-              ]}>
-                {btn.text}
-              </Text>
-            </TouchableOpacity> 
-          ))}
+          <View style={styles.modalButtons}>
+            {modalConfig.buttons?.map((btn, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.modalBtn,
+                  btn.style === "destructive" && styles.destructiveBtn,
+                  btn.style === "cancel" && styles.cancelBtn,
+                  (!btn.style || btn.style === "default") && styles.primaryBtn,
+                ]}
+                onPress={() => {
+                  setModalVisible(false);
+                  btn.onPress?.();
+                }}
+              >
+                <Text
+                  style={[
+                    styles.modalBtnText,
+                    (!btn.style || btn.style === "default") && { color: "#fff" },
+                  ]}
+                >
+                  {btn.text}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
 
   const calculateTotal = useCallback((items) => {
     if (!Array.isArray(items)) return 0;
-    const sum = items.reduce((acc, item) => acc + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0);
-    return sum;
+    return items.reduce(
+      (acc, item) => acc + (Number(item.price) || 0) * (Number(item.quantity) || 1),
+      0
+    );
   }, []);
 
   const fetchCart = async (isRefresh = false) => {
     try {
       if (!isRefresh) setLoading(true);
+
       const token = await AsyncStorage.getItem("token");
       if (!token) {
         showModal("Session Expired", "Please login again", [
@@ -101,16 +104,19 @@ export default function CartScreen() {
       setCart(data || []);
       setTotal(calculateTotal(data || []));
     } catch (err) {
-      showModal("Error", "Cannot load cart. Check connection.");
+      showModal("Error", "Cannot load cart. Check your connection.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    fetchCart();
-  }, []);
+  // Refresh cart when screen comes into focus (e.g. after adding item)
+  useFocusEffect(
+    useCallback(() => {
+      fetchCart();
+    }, [])
+  );
 
   const updateQuantity = async (itemId, newQty) => {
     if (newQty < 1) {
@@ -131,7 +137,9 @@ export default function CartScreen() {
 
       if (res.ok) {
         setCart((prev) =>
-          prev.map((item) => item.id === itemId ? { ...item, quantity: newQty } : item)
+          prev.map((item) =>
+            item.id === itemId ? { ...item, quantity: newQty } : item
+          )
         );
         setTotal(calculateTotal(cart));
       } else {
@@ -217,7 +225,7 @@ export default function CartScreen() {
 
               if (result.success) {
                 showModal("Success!", "Order placed successfully!", [
-                  { text: "Go Back", onPress: () => router.back },
+                  { text: "Go Back", onPress: () => router.back() },
                 ]);
                 setCart([]);
                 setTotal(0);
@@ -255,7 +263,9 @@ export default function CartScreen() {
         <View style={styles.empty}>
           <Icon name="cart-outline" size={80} color="#CBD5E1" />
           <Text style={styles.emptyTitle}>Your cart is empty</Text>
-          <Text style={styles.emptyText}>Looks like you haven't added anything yet</Text>
+          <Text style={styles.emptyText}>
+            Looks like you haven't added anything yet
+          </Text>
           <TouchableOpacity style={styles.shopBtn} onPress={() => router.back()}>
             <Text style={styles.shopText}>Start Shopping</Text>
           </TouchableOpacity>
@@ -279,7 +289,9 @@ export default function CartScreen() {
             renderItem={({ item }) => (
               <View style={styles.itemCard}>
                 <Image
-                  source={{ uri: item.image_url || "https://via.placeholder.com/100" }}
+                  source={{
+                    uri: item.image_url || "https://via.placeholder.com/100",
+                  }}
                   style={styles.itemImage}
                   resizeMode="cover"
                 />
@@ -287,7 +299,9 @@ export default function CartScreen() {
                   <Text style={styles.itemName} numberOfLines={2}>
                     {item.name || "No name"}
                   </Text>
-                  <Text style={styles.itemPrice}>₹{Number(item.price || 0).toFixed(2)}</Text>
+                  <Text style={styles.itemPrice}>
+                    ₹{Number(item.price || 0).toFixed(2)}
+                  </Text>
 
                   <View style={styles.quantityRow}>
                     <TouchableOpacity
@@ -310,7 +324,10 @@ export default function CartScreen() {
                   </Text>
                 </View>
 
-                <TouchableOpacity style={styles.removeBtn} onPress={() => removeItem(item.id)}>
+                <TouchableOpacity
+                  style={styles.removeBtn}
+                  onPress={() => removeItem(item.id)}
+                >
                   <Icon name="trash-outline" size={24} color="#DC2626" />
                 </TouchableOpacity>
               </View>
@@ -329,7 +346,6 @@ export default function CartScreen() {
         </>
       )}
 
-      {/* CUSTOM MODAL - WORKS ON WEB TOO! */}
       <CustomModal />
     </View>
   );
@@ -349,10 +365,21 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 18, color: "#E0F2F1", textAlign: "center", marginTop: 8 },
   loading: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 16, fontSize: 17, color: "#64748B" },
-  empty: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 40 },
+  empty: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 40,
+  },
   emptyTitle: { fontSize: 24, fontWeight: "800", color: "#1E293B", marginTop: 20 },
   emptyText: { fontSize: 16, color: "#64748B", textAlign: "center", marginTop: 12 },
-  shopBtn: { backgroundColor: "#0D9488", paddingHorizontal: 36, paddingVertical: 18, borderRadius: 20, marginTop: 32 },
+  shopBtn: {
+    backgroundColor: "#0D9488",
+    paddingHorizontal: 36,
+    paddingVertical: 18,
+    borderRadius: 20,
+    marginTop: 32,
+  },
   shopText: { color: "#fff", fontSize: 18, fontWeight: "700" },
   itemCard: {
     flexDirection: "row",
@@ -374,9 +401,23 @@ const styles = StyleSheet.create({
   itemName: { fontSize: 17, fontWeight: "700", color: "#1E293B" },
   itemPrice: { fontSize: 18, fontWeight: "800", color: "#0D9488" },
   quantityRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
-  qtyBtn: { width: 40, height: 40, backgroundColor: "#0D9488", borderRadius: 12, justifyContent: "center", alignItems: "center" },
+  qtyBtn: {
+    width: 40,
+    height: 40,
+    backgroundColor: "#0D9488",
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   qtyBtnText: { color: "#fff", fontSize: 22, fontWeight: "bold" },
-  qtyText: { fontSize: 18, fontWeight: "700", color: "#1E293B", marginHorizontal: 16, minWidth: 30, textAlign: "center" },
+  qtyText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1E293B",
+    marginHorizontal: 16,
+    minWidth: 30,
+    textAlign: "center",
+  },
   subtotal: { fontSize: 16, fontWeight: "700", color: "#DC2626" },
   removeBtn: { justifyContent: "center", paddingLeft: 12 },
   checkoutBar: {
@@ -398,8 +439,13 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 16 },
   totalLabel: { fontSize: 22, fontWeight: "700", color: "#1E293B" },
   totalAmount: { fontSize: 28, fontWeight: "800", color: "#0D9488" },
-  checkoutBtn: { backgroundColor: "#0D9488", paddingVertical: 18, borderRadius: 20, alignItems: "center" },
-  checkoutText: { color: "#201d1dff", fontSize: 20, fontWeight: "800" },
+  checkoutBtn: {
+    backgroundColor: "#0D9488",
+    paddingVertical: 18,
+    borderRadius: 20,
+    alignItems: "center",
+  },
+  checkoutText: { color: "#fff", fontSize: 20, fontWeight: "800" },
 
   // MODAL STYLES
   modalOverlay: {
@@ -415,18 +461,29 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 24,
     elevation: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
   },
-  modalTitle: { fontSize: 22, fontWeight: "bold", textAlign: "center", marginBottom: 12 },
-  modalMessage: { fontSize: 16, textAlign: "center", color: "#555", marginBottom: 24, lineHeight: 22 },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  modalMessage: {
+    fontSize: 16,
+    textAlign: "center",
+    color: "#555",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
   modalButtons: { flexDirection: "row", justifyContent: "space-around" },
-  modalBtn: { paddingVertical: 12, paddingHorizontal: 28, borderRadius: 12, minWidth: 100 },
+  modalBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+    minWidth: 100,
+  },
   modalBtnText: { color: "#fff", fontWeight: "bold", textAlign: "center" },
   cancelBtn: { backgroundColor: "#94a3b8" },
   destructiveBtn: { backgroundColor: "#dc2626" },
-    primaryBtn: { 
-    backgroundColor: "#0D9488"   // Same teal as your main button
-  },
+  primaryBtn: { backgroundColor: "#0D9488" },
 });

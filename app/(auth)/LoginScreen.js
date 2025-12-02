@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,10 +18,9 @@ export default function LoginScreen({ navigation }) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
-
     try {
       console.log("Sending login request to backend...");
-      const response = await fetch("http://localhost:5000/login", {
+      const response = await fetch("https://ecommerce-sage-kappa-45.vercel.app/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
