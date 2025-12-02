@@ -566,7 +566,7 @@ app.put("/profile/:id", async (req, res) => {
 });
 
 app.get("/", (req, res) => res.send("E-Commerce MongoDB Server Running..."));
- (!process.env.VERCEL && !process.env.NETLIFY) {
+ if(!process.env.VERCEL && !process.env.NETLIFY) {
   app.listen(Port, () => {
     console.log(`🚀 Server Live on Port ${serverPort}`);
     console.log(`🌐 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
