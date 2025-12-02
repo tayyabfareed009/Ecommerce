@@ -566,8 +566,12 @@ app.put("/profile/:id", async (req, res) => {
 });
 
 app.get("/", (req, res) => res.send("E-Commerce MongoDB Server Running..."));
-if (process.env.NODE_ENV !== 'vercel') {
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+ (!process.env.VERCEL && !process.env.NETLIFY) {
+  app.listen(Port, () => {
+    console.log(`🚀 Server Live on Port ${serverPort}`);
+    console.log(`🌐 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
   });
-};
+}
+
+// Export for serverless platforms (Vercel, Netlify Functions)
+module.exports = app
