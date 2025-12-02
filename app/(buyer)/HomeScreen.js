@@ -13,13 +13,14 @@ import {
 import Icon from "react-native-vector-icons/Ionicons";
 
 export default function HomeScreen({ navigation }) {
-  const [products, setProducts] = useState([]);
-  const [filteredProducts, setFilteredProducts] = useState([]);
+  const [products, setProducts] =  useState([]);
+  const [filteredProducts, setFilteredProducts] =  useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedTag, setSelectedTag] = useState("All");
 
-  const baseURL ="https://ecommerce-crxt.vercel.app";
+  const baseURL = "https://ecommerce-crxt.vercel.app";
 
   const fetchProducts = async () => {
     try {
@@ -60,23 +61,39 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   useEffect(() => {
-    const query = searchQuery.toLowerCase();
-    const filtered = products.filter(
-      (p) =>
-        p.name?.toLowerCase().includes(query) ||
-        p.category?.toLowerCase().includes(query) ||
-        p.description?.toLowerCase().includes(query)
-    );
-    setFilteredProducts(filtered);
-  }, [searchQuery, products]);
+    if (selectedTag === "All") {
+      const query = searchQuery.toLowerCase();
+      const filtered = products.filter(
+        (p) =>
+          p.name?.toLowerCase().includes(query) ||
+          p.category?.toLowerCase().includes(query) ||
+          p.description?.toLowerCase().includes(query)
+      );
+      setFilteredProducts(filtered);
+    } else {
+      const query = searchQuery.toLowerCase();
+      const filtered = products.filter(
+        (p) =>
+          (p.name?.toLowerCase().includes(query) ||
+            p.category?.toLowerCase().includes(query) ||
+            p.description?.toLowerCase().includes(query)) &&
+          (p.name?.toLowerCase().includes(selectedTag.toLowerCase()) ||
+            p.category?.toLowerCase().includes(selectedTag.toLowerCase()) ||
+            p.tags?.some(tag => tag.toLowerCase().includes(selectedTag.toLowerCase())))
+      );
+      setFilteredProducts(filtered);
+    }
+  }, [searchQuery, products, selectedTag]);
 
   const onRefresh = () => {
     setRefreshing(true);
     setSearchQuery("");
+    setSelectedTag("All");
     fetchProducts();
   };
 
   const searchTags = [
+    "All",
     "Wallet",
     "Shirt",
     "Jeans",
@@ -86,7 +103,16 @@ export default function HomeScreen({ navigation }) {
     "Bag",
     "T-Shirt",
     "Jacket",
+    "Electronics",
+    "Accessories"
   ];
+
+  const handleTagPress = (tag) => {
+    setSelectedTag(tag);
+    if (tag === "All") {
+      setSearchQuery("");
+    }
+  };
 
   if (loading) {
     return (
@@ -121,6 +147,28 @@ export default function HomeScreen({ navigation }) {
     </TouchableOpacity>
   );
 
+  const renderTag = ({ item }) => (
+    <TouchableOpacity
+      style={[
+        styles.tag,
+        selectedTag === item && styles.tagSelected
+      ]}
+      onPress={() => handleTagPress(item)}
+    >
+      <Text
+        style={[
+          styles.tagText,
+          selectedTag === item && styles.tagTextSelected
+        ]}
+        numberOfLines={1}
+        adjustsFontSizeToFit={true}
+        minimumFontScale={0.8}
+      >
+        {item}
+      </Text>
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -146,22 +194,18 @@ export default function HomeScreen({ navigation }) {
         ) : null}
       </View>
 
-      {/* Trending Tags */}
-      <FlatList
-        data={searchTags}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        keyExtractor={(item) => item}
-        contentContainerStyle={styles.tagsContainer}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.tag}
-            onPress={() => setSearchQuery(item)}
-          >
-            <Text style={styles.tagText}>{item}</Text>
-          </TouchableOpacity>
-        )}
-      />
+      {/* Category Tags */}
+      <View style={styles.tagsSection}>
+        <Text style={styles.tagsTitle}>Categories</Text>
+        <FlatList
+          data={searchTags}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(item) => item}
+          contentContainerStyle={styles.tagsContainer}
+          renderItem={renderTag}
+        />
+      </View>
 
       {/* Products Grid */}
       <FlatList
@@ -174,19 +218,29 @@ export default function HomeScreen({ navigation }) {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#0D9488"]} />
         }
+        ListHeaderComponent={
+          <Text style={styles.resultsText}>
+            {filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'} found
+            {selectedTag !== "All" && ` in "${selectedTag}"`}
+            {searchQuery && ` for "${searchQuery}"`}
+          </Text>
+        }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
+            <Icon name="search-outline" size={60} color="#CBD5E1" />
             <Text style={styles.emptyTitle}>
-              {searchQuery ? "No products found" : "No products available"}
+              {searchQuery || selectedTag !== "All" ? "No products found" : "No products available"}
             </Text>
             <Text style={styles.emptyText}>
               {searchQuery
-                ? `Try searching for "${searchTags[0]}" or "${searchTags[1]}"`
+                ? `Try searching for "${searchTags[1]}" or "${searchTags[2]}"`
+                : selectedTag !== "All"
+                ? `Try selecting "All" categories`
                 : "Check back later for new arrivals!"}
             </Text>
           </View>
         }
-        contentContainerStyle={{ paddingBottom: 30 }}
+        contentContainerStyle={styles.productsContainer}
       />
     </View>
   );
@@ -247,28 +301,66 @@ const styles = StyleSheet.create({
     color: "#1E293B",
   },
 
-  tagsContainer: {
+  tagsSection: {
     paddingHorizontal: 32,
-    paddingVertical: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+  },
+  tagsTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1E293B",
+    marginBottom: 12,
+  },
+  tagsContainer: {
+    paddingVertical: 4,
   },
   tag: {
-    backgroundColor: "#F0FDF4",
-    paddingHorizontal: 20,
+    backgroundColor: "#F8FAFC",
+    paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 20,
-    marginRight: 12,
+    borderRadius: 12,
+    marginRight: 8,
     borderWidth: 1.5,
-    borderColor: "#BBF7D0",
+    borderColor: "#E2E8F0",
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  tagSelected: {
+    backgroundColor: "#0D9488",
+    borderColor: "#0D9488",
+    shadowColor: "#0D9488",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
   tagText: {
-    color: "#16A34A",
-    fontWeight: "700",
+    color: "#64748B",
+    fontWeight: "600",
     fontSize: 14,
+    textAlign: 'center',
+  },
+  tagTextSelected: {
+    color: "#FFFFFF",
+    fontWeight: "700",
   },
 
   row: {
     justifyContent: "space-between",
     paddingHorizontal: 24,
+  },
+
+  resultsText: {
+    fontSize: 14,
+    color: "#64748B",
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    paddingBottom: 8,
+  },
+
+  productsContainer: {
+    paddingBottom: 30,
   },
 
   productCard: {
@@ -335,15 +427,19 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingTop: 100,
+    paddingTop: 60,
     paddingHorizontal: 40,
+    minHeight: 300,
   },
   emptyTitle: {
     fontSize: 22,
     fontWeight: "800",
     color: "#1E293B",
+    marginTop: 16,
     marginBottom: 12,
+    textAlign: "center",
   },
+
   emptyText: {
     fontSize: 16,
     color: "#64748B",
