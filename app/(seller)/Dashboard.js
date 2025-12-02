@@ -16,7 +16,7 @@ export default function Dashboard({ navigation }) {
       const token = await AsyncStorage.getItem("token");
       if (!token) return;
 
-      const res = await fetch("http://localhost:5000/orders", {
+      const res = await fetch("https://ecommerce-crxt.vercel.app/orders", {
         headers: { Authorization: `Bearer ${token}` },
       });
 

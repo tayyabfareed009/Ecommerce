@@ -42,7 +42,7 @@ export default function OrderDetails({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const BASE_URL = "http://localhost:5000";
+  const BASE_URL = "https://ecommerce-crxt.vercel.app";
 
   const fetchOrderDetails = async () => {
     console.log("Fetching order details for:", orderId); // Debug log

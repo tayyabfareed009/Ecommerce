@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -32,12 +31,7 @@ export default function ProductDetails({ route }) {
         return;
       }
 
-      const baseUrl = Platform.select({
-        ios: "http://localhost:5000",
-        android: "http://10.0.2.2:5000",
-        default: "http://localhost:5000",
-      });
-
+      const baseUrl ="https://ecommerce-crxt.vercel.app";
       const res = await fetch(`${baseUrl}/add-to-cart`, {
         method: "POST",
         headers: {

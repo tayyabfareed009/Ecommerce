@@ -1,8 +1,8 @@
-import { API_URL } from "..config";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useState } from "react";
 import {
   Alert,
+  Platform, // ADD THIS IMPORT
   StyleSheet,
   Text,
   TextInput,
@@ -10,25 +10,31 @@ import {
   View,
 } from "react-native";
 
+const API_URL = "https://ecommerce-crxt.vercel.app";
+
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const handleLogin = async () => {
+    console.log("Login button pressed!");
+    
     if (!email || !password) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
+    
     try {
-      console.log("Sending login request to backend...");
-      const response = await fetch(`${API_URL}}/login`, {
+      console.log("Sending login request to:", `${API_URL}/login`);
+      
+      const response = await fetch(`${API_URL}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
 
       const data = await response.json();
-      console.log("Response from server:", data);
+      console.log("Login response:", data);
 
       if (!response.ok) {
         Alert.alert("Error", data.message || "Invalid credentials");
@@ -44,6 +50,7 @@ export default function LoginScreen({ navigation }) {
       await AsyncStorage.setItem("email", userEmail);
 
       Alert.alert("Welcome", `Logged in as ${role}`);
+      
       if (role === "customer") {
         navigation.navigate("BuyerTabs");
       } else if (role === "shopkeeper") {
@@ -51,6 +58,7 @@ export default function LoginScreen({ navigation }) {
       } else {
         Alert.alert("Error", "Unknown role. Please contact support.");
       }
+      
     } catch (err) {
       console.log("Login error:", err);
       Alert.alert("Error", "Unable to connect to server");
@@ -59,7 +67,7 @@ export default function LoginScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      {/* Optional Logo – replace with your real logo later */}
+      {/* Optional Logo */}
       <View style={styles.logoContainer}>
         <View style={styles.logo} />
       </View>
@@ -93,7 +101,7 @@ export default function LoginScreen({ navigation }) {
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => navigation.navigate("SignupScreen")}>
-        <Text style={styles.link}>Don’t have an account? Sign Up</Text>
+        <Text style={styles.link}>Don't have an account? Sign Up</Text>
       </TouchableOpacity>
     </View>
   );
@@ -116,7 +124,6 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 28,
     backgroundColor: "#F1F5F9",
-    // Replace with: <Image source={require('./assets/logo.png')} style={styles.logo} />
   },
 
   title: {
@@ -148,16 +155,24 @@ const styles = StyleSheet.create({
   },
 
   button: {
-    backgroundColor: "#0D9488",     // Premium teal – modern & trustworthy
+    backgroundColor: "#0D9488",
     paddingVertical: 18,
     borderRadius: 16,
     alignItems: "center",
     marginTop: 12,
-    shadowColor: "#0D9488",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.24,
-    shadowRadius: 16,
-    elevation: 12,
+    // Fixed shadow warning
+    ...Platform.select({
+      web: {
+        boxShadow: "0 8px 16px rgba(13, 148, 136, 0.24)",
+      },
+      default: {
+        shadowColor: "#0D9488",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.24,
+        shadowRadius: 16,
+        elevation: 12,
+      },
+    }),
   },
   buttonText: {
     color: "#FFFFFF",

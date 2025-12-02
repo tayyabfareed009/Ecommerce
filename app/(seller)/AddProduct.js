@@ -83,8 +83,8 @@ export default function AddProduct({ route, navigation }) {
     try {
       const token = await AsyncStorage.getItem("token");
       const url = editProduct
-        ? `http://localhost:5000/update-product/${editProduct.id}`
-        : "http://localhost:5000/add-product";
+        ? `https://ecommerce-crxt.vercel.app/update-product/${editProduct.id}`
+        : "https://ecommerce-crxt.vercel.app/add-product";
 
       const payload = {
         ...product,

@@ -1,4 +1,3 @@
-import { API_URL } from "..config";
 import { useState } from "react";
 import {
   Alert,
@@ -9,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { API_URL } from "../config";
 export default function Signup({ navigation }) {
   const [user, setUser] = useState({
     name: "",

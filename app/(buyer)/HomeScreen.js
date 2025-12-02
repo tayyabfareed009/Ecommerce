@@ -3,13 +3,12 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
-  Platform,
   RefreshControl,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
 
@@ -20,8 +19,7 @@ export default function HomeScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const baseURL =
-    Platform.OS === "android" ? "http://10.0.2.2:5000" : "http://localhost:5000";
+  const baseURL ="https://ecommerce-crxt.vercel.app";
 
   const fetchProducts = async () => {
     try {

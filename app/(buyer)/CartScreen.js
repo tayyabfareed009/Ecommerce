@@ -6,12 +6,11 @@ import {
   FlatList,
   Image,
   Modal,
-  Platform,
   RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
 
@@ -25,10 +24,7 @@ export default function CartScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [modalConfig, setModalConfig] = useState({});
 
-  const baseUrl = (() => {
-    if (Platform.OS === "web") return "http://127.0.0.1:5000";
-    return Platform.OS === "ios" ? "http://localhost:5000" : "http://10.0.2.2:5000";
-  })();
+  const baseUrl ="https://ecommerce-crxt.vercel.app";
 
   // CUSTOM MODAL (Works on Web too!)
   const showModal = (title, message, buttons = []) => {

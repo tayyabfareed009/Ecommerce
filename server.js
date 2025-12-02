@@ -288,7 +288,34 @@ app.post("/login", checkDB, async (req, res) => {
     });
   }
 });
-
+// ==================== SELLER PRODUCTS ====================
+// GET seller's own products
+app.get("/seller/products", checkDB, verifyToken("shopkeeper"), async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+    
+    console.log("Fetching products for seller:", sellerId);
+    
+    const products = await Product.find({ seller_id: sellerId })
+      .sort({ createdAt: -1 });
+    
+    console.log(`Found ${products.length} products for seller ${sellerId}`);
+    
+    res.json({
+      success: true,
+      count: products.length,
+      products
+    });
+    
+  } catch (error) {
+    console.error("Seller products error:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch seller products",
+      error: error.message 
+    });
+  }
+});
 app.get("/products", checkDB, async (req, res) => {
   try {
     const products = await Product.find();

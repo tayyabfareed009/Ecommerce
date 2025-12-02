@@ -18,23 +18,53 @@ export default function ManageProducts({ navigation }) {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
 
-  const baseUrl = "http://localhost:5000";
+  const baseUrl = "https://ecommerce-crxt.vercel.app";
 
   const fetchProducts = async () => {
-    try {
-      const token = await AsyncStorage.getItem("token");
-      const res = await fetch(`${baseUrl}/products`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
+  try {
+    const token = await AsyncStorage.getItem("token");
+    const userRole = await AsyncStorage.getItem("role");
+    
+    console.log("User role:", userRole);
+    
+    // Use different endpoint based on role
+    const endpoint = userRole === "shopkeeper" 
+      ? `${baseUrl}/seller/products` 
+      : `${baseUrl}/products`;
+    
+    console.log("Fetching from:", endpoint);
+    
+    const res = await fetch(endpoint, {
+      headers: { 
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+    });
+    
+    console.log("Response status:", res.status);
+    
+    const data = await res.json();
+    console.log("Response data:", data);
+    
+    if (res.ok) {
+      if (data.success && data.products) {
+        setProducts(data.products);
+      } else if (Array.isArray(data)) {
+        // Backward compatibility
         setProducts(data);
+      } else {
+        console.log("Unexpected response format:", data);
+        setProducts([]);
       }
-    } catch (err) {
-      console.log("Error fetching products:", err);
+    } else {
+      console.log("Error:", data.message);
+      setProducts([]);
     }
-  };
-
+  } catch (err) {
+    console.log("Error fetching products:", err);
+    setProducts([]);
+  }
+};
   const confirmDelete = (id) => {
     setProductToDelete(id);
     setDeleteModalVisible(true);
