@@ -1,407 +1,424 @@
-// api/index.js — E-COMMERCE BACKEND (Your App) — FULLY VERCEL READY + VOGUEVAULT STYLE
-require("dotenv").config();
+// server.js - MongoDB + Mongoose Version (Drop-in replacement)
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+require("dotenv").config();
 
 const app = express();
+app.use(express.json());
+app.use(cors());
 
-// CORS — Allow React Native (Expo Go + Web + Mobile)
-app.use(
-  cors({
-    origin: [
-      "http://localhost:8081",
-      "http://localhost:3000",
-      "http://192.168.1.101:8081",
-      "exp://*",
-      "https://ecommerce-sage-kappa-45.vercel.app",
-      "https://your-app.vercel.app",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allowedHeaders: ["Content-Type", "Authorization", "Accept"],
-  })
-);
+// ==================== CONNECT TO MONGODB ====================
+const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://tayyab:12345@cluster0.7ehzawj.mongodb.net/?appName=Cluster0";
 
-app.use(express.json({ limit: "10mb" }));
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("Connected to MongoDB"))
+  .catch(err => console.log("MongoDB Error:", err));
 
-// ==================== MongoDB Connection (Serverless Safe) ====================
-let isConnected = false;
+// ==================== SCHEMAS & MODELS ====================
+const userSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String,
+  phone: String,
+  address: String,
+  image: String,
+  role: { type: String, enum: ["customer", "shopkeeper"], default: "customer" }
+}, { timestamps: true });
 
-async function connectDB() {
-  if (isConnected) return;
-  try {
-    await mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 10000,
-      maxPoolSize: 10,
-    });
-    isConnected = true;
-    console.log("Connected to MongoDB → E-Commerce App");
-  } catch (err) {
-    console.error("MongoDB Connection Failed:", err.message);
-    throw err;
-  }
-}
-
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (err) {
-    res.status(500).json({ message: "Database connection failed" });
-  }
-});
-
-// ==================== Schemas & Models ====================
-const userSchema = new mongoose.Schema(
-  {
-    name: String,
-    email: { type: String, unique: true, required: true },
-    password: String,
-    phone: String,
-    address: String,
-    image: String,
-    role: { type: String, enum: ["customer", "shopkeeper"], default: "customer" },
-  },
-  { timestamps: true }
-);
-
-const productSchema = new mongoose.Schema(
-  {
-    name: String,
-    description: String,
-    price: Number,
-    image_url: String,
-    category: String,
-    stock: Number,
-    seller_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-  },
-  { timestamps: true }
-);
+const productSchema = new mongoose.Schema({
+  name: String,
+  description: String,
+  price: Number,
+  image_url: String,
+  category: String,
+  stock: Number,
+  seller_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
+}, { timestamps: true });
 
 const cartSchema = new mongoose.Schema({
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, unique: true },
-  items: [
-    {
-      product_id: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
-      quantity: { type: Number, default: 1, min: 1 },
-    },
-  ],
-});
-
-const orderSchema = new mongoose.Schema(
-  {
-    user_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    total_amount: Number,
-    status: { type: String, default: "Pending" },
-    items: [
-      {
-        product_id: { type: mongoose.Schema.Types.ObjectId },
-        product_name: String,
-        price: Number,
-        quantity: Number,
-        image_url: String,
-      },
-    ],
-    customer: { name: String, email: String, phone: String, address: String },
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+    unique: true,
   },
-  { timestamps: { createdAt: "order_date" } }
-);
+  items: {
+    type: [{
+      product_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+        required: true,
+      },
+      quantity: {
+        type: Number,
+        default: 1,
+        min: 1,
+      },
+    }],
+    default: [],
+  },
+}, { timestamps: true });
+
+const orderSchema = new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  total_amount: Number,
+  status: { type: String, default: "Pending" },
+  items: [{
+    product_id: { type: mongoose.Schema.Types.ObjectId },
+    product_name: String,
+    price: Number,
+    quantity: Number,
+    image_url: String
+  }],
+  customer: {
+    name: String,
+    email: String,
+    phone: String,
+    address: String
+  }
+}, { timestamps: { createdAt: "order_date" } });
 
 const User = mongoose.model("User", userSchema);
 const Product = mongoose.model("Product", productSchema);
 const Cart = mongoose.model("Cart", cartSchema);
 const Order = mongoose.model("Order", orderSchema);
 
-// Auto convert _id → id + remove __v
-[userSchema, productSchema, cartSchema, orderSchema].forEach((schema) => {
+// Auto convert _id → id in all responses
+[userSchema, productSchema, cartSchema, orderSchema].forEach(schema => {
   schema.set("toJSON", {
     transform: (doc, ret) => {
-      ret.id = ret._id?.toString();
+      ret.id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
       return ret;
-    },
+    }
   });
 });
 
-// ==================== JWT Auth Middleware ====================
-const authMiddleware = (requiredRole) => async (req, res, next) => {
+// ==================== JWT MIDDLEWARE ====================
+const verifyToken = (requiredRole) => (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ message: "No token provided" });
+  if (!token) return res.status(401).json({ message: "Access denied. No token provided." });
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secretkey");
-    const user = await User.findById(decoded.id);
-    if (!user) return res.status(401).json({ message: "User not found" });
-
-    if (requiredRole && user.role !== requiredRole) {
-      return res.status(403).json({ message: "Forbidden: Insufficient role" });
-    }
-
-    req.user = { id: user.id, role: user.role, name: user.name };
+  jwt.verify(token, "secretkey", (err, decoded) => {
+    if (err) return res.status(401).json({ message: "Invalid token" });
+    if (requiredRole && decoded.role !== requiredRole)
+      return res.status(403).json({ message: "Access denied. Not authorized." });
+    req.user = decoded;
     next();
-  } catch (err) {
-    console.error("Token error:", err.message);
-    return res.status(401).json({ message: "Invalid or expired token" });
-  }
+  });
 };
 
 // ==================== ROUTES ====================
 
-app.get("/", (req, res) => {
-  res.json({ message: "E-Commerce API is LIVE & READY!" });
-});
-
-// SIGNUP
 app.post("/signup", async (req, res) => {
-  try {
-    const { name, email, password, phone, address, role = "customer" } = req.body;
-    if (!name || !email || !password) return res.status(400).json({ message: "Required fields missing" });
+  const { name, email, password, phone, address, role } = req.body;
+  if (!name || !email || !password || !role) return res.status(400).json({ message: "All required fields must be provided" });
 
-    if (await User.findOne({ email })) return res.status(400).json({ message: "Email already registered" });
+  const exists = await User.findOne({ email });
+  if (exists) return res.status(400).json({ message: "Email already registered" });
 
-    const hashed = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hashed, phone, address, role });
-
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || "secretkey", { expiresIn: "7d" });
-
-    console.log("New user registered:", email, "→", role);
-    res.status(201).json({
-      message: "Registered successfully",
-      token,
-      id: user.id,
-      role: user.role,
-      name: user.name,
-      email: user.email,
-      phone: user.phone || "",
-      address: user.address || "",
-    });
-  } catch (err) {
-    console.error("Signup error:", err);
-    res.status(500).json({ message: "Server error" });
-  }
+  const hashed = await bcrypt.hash(password, 10);
+  await User.create({ name, email, password: hashed, phone, address, role });
+  res.status(201).json({ message: "User registered successfully!" });
 });
 
-// LOGIN
 app.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      console.log("Login failed: Invalid credentials →", email);
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
+  const { email, password } = req.body;
 
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || "secretkey", { expiresIn: "7d" });
-
-    console.log("Login successful →", email, "(", user.role, ")");
-    res.json({
-      message: "Login successful",
-      token,
-      id: user.id,
-      role: user.role,
-      name: user.name,
-      email: user.email,
-      phone: user.phone || "",
-      address: user.address || "",
-    });
-  } catch (err) {
-    console.error("Login error:", err);
-    res.status(500).json({ message: "Server error" });
+  const user = await User.findOne({ email });
+  if (!user || !(await bcrypt.compare(password, user.password))) {
+    return res.status(400).json({ message: "Invalid credentials" });
   }
+
+  const token = jwt.sign({ id: user.id, role: user.role }, "secretkey", { expiresIn: "1d" });
+
+  res.json({
+    message: "Login successful",
+    token,
+    id: user.id,
+    role: user.role,
+    name: user.name,
+    email: user.email,
+    address: user.address || "",
+    phone: user.phone,
+  });
 });
 
-// PRODUCTS
 app.get("/products", async (req, res) => {
-  try {
-    const products = await Product.find().sort({ createdAt: -1 });
-    console.log(`Fetched ${products.length} products`);
-    res.json(products);
-  } catch (err) {
-    res.status(500).json({ message: "Failed to fetch products" });
-  }
+  const products = await Product.find();
+  res.json(products);
 });
 
-app.post("/add-product", authMiddleware("shopkeeper"), async (req, res) => {
-  try {
-    const { name, price, description, image_url, category, stock } = req.body;
-    if (!name || !price || !image_url || !category || !stock) return res.status(400).json({ message: "All fields required" });
+app.post("/add-product", verifyToken("shopkeeper"), async (req, res) => {
+  const { name, price, description, image_url, category, stock } = req.body;
+  if (!name || !price || !description || !image_url || !category || !stock)
+    return res.status(400).json({ message: "All fields are required" });
 
-    await Product.create({ ...req.body, seller_id: req.user.id });
-    console.log("Product added by", req.user.name);
-    res.status(201).json({ message: "Product added successfully" });
-  } catch (err) {
-    res.status(500).json({ message: "Failed to add product" });
-  }
+  await Product.create({ ...req.body, seller_id: req.user.id });
+  res.status(201).json({ message: "Product added successfully" });
 });
 
-app.put("/update-product/:id", authMiddleware("shopkeeper"), async (req, res) => {
-  try {
-    const product = await Product.findOne({ _id: req.params.id, seller_id: req.user.id });
-    if (!product) return res.status(404).json({ message: "Product not found or not owned" });
-    await Product.updateOne({ _id: req.params.id }, req.body);
-    console.log("Product updated:", req.params.id);
-    res.json({ message: "Product updated successfully" });
-  } catch (err) {
-    res.status(500).json({ message: "Update failed" });
-  }
+app.put("/update-product/:id", verifyToken("shopkeeper"), async (req, res) => {
+  const product = await Product.findOne({ _id: req.params.id, seller_id: req.user.id });
+  if (!product) return res.status(404).json({ message: "Product not found or not owned" });
+
+  await Product.updateOne({ _id: req.params.id }, req.body);
+  res.json({ message: "Product updated successfully!" });
 });
 
-app.delete("/delete-product/:id", authMiddleware("shopkeeper"), async (req, res) => {
-  try {
-    const result = await Product.deleteOne({ _id: req.params.id, seller_id: req.user.id });
-    if (result.deletedCount === 0) return res.status(404).json({ message: "Product not found" });
-    console.log("Product deleted:", req.params.id);
-    res.json({ message: "Product deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ message: "Delete failed" });
-  }
+app.delete("/delete-product/:id", verifyToken("shopkeeper"), async (req, res) => {
+  const result = await Product.deleteOne({ _id: req.params.id, seller_id: req.user.id });
+  if (result.deletedCount === 0) return res.status(404).json({ message: "Product not found" });
+  res.json({ message: "Product deleted successfully!" });
 });
 
-// CART ROUTES
-app.post("/add-to-cart", authMiddleware(), async (req, res) => {
+app.post("/add-to-cart", verifyToken(), async (req, res) => {
   const { product_id, quantity = 1 } = req.body;
-  if (!product_id || !mongoose.Types.ObjectId.isValid(product_id)) return res.status(400).json({ message: "Invalid product ID" });
+
+  if (!product_id || !mongoose.Types.ObjectId.isValid(product_id)) {
+    return res.status(400).json({ message: "Invalid product ID" });
+  }
 
   try {
     const userId = new mongoose.Types.ObjectId(req.user.id);
     const prodId = new mongoose.Types.ObjectId(product_id);
+
     const product = await Product.findById(prodId);
-    if (!product) return res.status(404).json({ message: "Product not found" });
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
 
     let cart = await Cart.findOne({ user_id: userId });
+
     if (!cart) {
-      cart = new Cart({ user_id: userId, items: [{ product_id: prodId, quantity }] });
+      cart = new Cart({
+        user_id: userId,
+        items: [{ product_id: prodId, quantity: Number(quantity) }]
+      });
     } else {
-      const idx = cart.items.findIndex(i => i.product_id.toString() === product_id);
-      if (idx > -1) cart.items[idx].quantity += quantity;
-      else cart.items.push({ product_id: prodId, quantity });
+      const existingItemIndex = cart.items.findIndex(
+        item => item.product_id.toString() === product_id
+      );
+
+      if (existingItemIndex > -1) {
+        cart.items[existingItemIndex].quantity += Number(quantity);
+      } else {
+        cart.items.push({ product_id: prodId, quantity: Number(quantity) });
+      }
     }
 
     await cart.save();
-    await cart.populate("items.product_id", "name price image_url stock");
+    await cart.populate({
+      path: "items.product_id",
+      select: "name price image_url stock"
+    });
 
-    const items = cart.items
-      .filter(i => i.product_id)
-      .map(i => ({
-        id: i._id.toString(),
-        product_id: i.product_id._id.toString(),
-        name: i.product_id.name,
-        price: i.product_id.price,
-        image_url: i.product_id.image_url,
-        quantity: i.quantity,
-        stock: i.product_id.stock,
+    const cartItems = cart.items
+      .filter(item => item.product_id !== null)
+      .map(item => ({
+        id: item._id.toString(),
+        product_id: item.product_id._id.toString(),
+        name: item.product_id.name || "Unknown Product",
+        price: Number(item.product_id.price) || 0,
+        image_url: item.product_id.image_url || "https://via.placeholder.com/150",
+        quantity: item.quantity,
+        stock: item.product_id.stock || 0,
       }));
 
-    const totalPrice = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    if (cart.items.length !== cartItems.length) {
+      await Cart.updateOne(
+        { user_id: userId },
+        { $pull: { "items": { product_id: null } } }
+      );
+    }
 
-    console.log(`Added to cart → User: ${req.user.name}, Product: ${product.name}`);
-    res.json({ success: true, message: "Added to cart!", cart: items, totalItems: items.length, totalPrice });
+    const totalPrice = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+    return res.json({
+      success: true,
+      message: "Added to cart!",
+      cart: cartItems,
+      totalItems: cartItems.length,
+      totalPrice
+    });
+
   } catch (err) {
     console.error("Add to cart error:", err);
-    res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
-app.get("/cart", authMiddleware(), async (req, res) => {
+app.get("/cart", verifyToken(), async (req, res) => {
   try {
-    const cart = await Cart.findOne({ user_id: req.user.id }).populate("items.product_id", "name price image_url stock");
-    if (!cart || cart.items.length === 0) return res.json([]);
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+
+    const cart = await Cart.findOne({ user_id: userId }).populate({
+      path: "items.product_id",
+      select: "name price image_url stock"
+    });
+
+    if (!cart) return res.json([]);
 
     const items = cart.items
-      .filter(i => i.product_id)
-      .map(i => ({
-        id: i._id.toString(),
-        product_id: i.product_id._id.toString(),
-        name: i.product_id.name,
-        price: i.product_id.price,
-        image_url: i.product_id.image_url,
-        quantity: i.quantity,
+      .filter(item => item.product_id !== null)
+      .map(item => ({
+        id: item._id.toString(),
+        product_id: item.product_id._id.toString(),
+        name: item.product_id.name || "Deleted Product",
+        price: Number(item.product_id.price) || 0,
+        image_url: item.product_id.image_url || "https://via.placeholder.com/150",
+        quantity: item.quantity,
       }));
+
+    if (cart.items.length !== items.length) {
+      await Cart.updateOne(
+        { user_id: userId },
+        { $pull: { "items": { product_id: null } } }
+      );
+    }
 
     res.json(items);
   } catch (err) {
-    console.error("Cart fetch error:", err);
-    res.status(500).json({ message: "Failed to fetch cart" });
+    console.error(err);
+    res.status(500).json({ message: "Error fetching cart" });
   }
 });
 
-app.put("/cart/update", authMiddleware(), async (req, res) => {
+app.put("/cart/update", verifyToken(), async (req, res) => {
   try {
     const { itemId, quantity } = req.body;
     const userId = new mongoose.Types.ObjectId(req.user.id);
 
     if (quantity < 1) {
-      await Cart.updateOne({ user_id: userId }, { $pull: { items: { _id: itemId } } });
+      await Cart.updateOne(
+        { user_id: userId },
+        { $pull: { items: { _id: itemId } } }
+      );
     } else {
-      await Cart.updateOne({ user_id: userId, "items._id": itemId }, { $set: { "items.$.quantity": quantity } });
+      await Cart.updateOne(
+        { user_id: userId, "items._id": itemId },
+        { $set: { "items.$.quantity": quantity } }
+      );
     }
+
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ message: "Update failed" });
+    res.status(500).json({ error: "Update failed" });
   }
 });
 
-app.delete("/cart/item", authMiddleware(), async (req, res) => {
+app.delete("/cart/item", verifyToken(), async (req, res) => {
   try {
     const { itemId } = req.body;
-    await Cart.updateOne({ user_id: req.user.id }, { $pull: { items: { _id: itemId } } });
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+
+    await Cart.updateOne(
+      { user_id: userId },
+      { $pull: { items: { _id: itemId } } }
+    );
+
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ message: "Remove failed" });
+    res.status(500).json({ error: "Failed to remove" });
   }
 });
 
-// PLACE ORDER
-app.post("/place-order", authMiddleware(), async (req, res) => {
+app.post("/place-order", verifyToken(), async (req, res) => {
+  console.log("[/place-order] Request received");
+  console.log("User ID from token:", req.user?.id);
+  console.log("Request body:", req.body);
+
   try {
     const { total_amount, items } = req.body;
-    if (!items || items.length === 0) return res.status(400).json({ message: "Cart is empty" });
 
-    const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      console.log("Cart is empty or items missing");
+      return res.status(400).json({ message: "Cart is empty" });
+    }
+
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+    console.log("Converted userId (ObjectId):", userId);
+
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log("User not found for ID:", userId);
+      return res.status(404).json({ message: "User not found" });
+    }
+    console.log("User found:", { name: user.name, email: user.email });
 
     const order = await Order.create({
-      user_id: req.user.id,
+      user_id: userId,
       total_amount,
-      customer: { name: user.name, email: user.email, phone: user.phone || "", address: user.address || "" },
-      items: items.map(i => ({
-        product_id: i.product_id,
-        product_name: i.name,
+      status: "Pending",
+      customer: {
+        name: user.name,
+        email: user.email,
+        phone: user.phone || "",
+        address: user.address || "",
+      },
+      items: items.map((i) => ({
+        product_id: new mongoose.Types.ObjectId(i.product_id),
+        product_name:i.name,
         price: i.price,
         quantity: i.quantity,
         image_url: i.image_url,
       })),
     });
 
-    await Cart.updateOne({ user_id: req.user.id }, { $set: { items: [] } });
-    console.log("Order placed → ID:", order.id, "by", user.name);
+    console.log("Order created successfully:", order._id);
 
-    res.json({ success: true, message: "Order placed!", orderId: order.id });
+    const cartUpdateResult = await Cart.updateOne(
+      { user_id: userId },
+      { $set: { items: [] } }
+    );
+
+    console.log("Cart clear result:", {
+      matchedCount: cartUpdateResult.matchedCount,
+      modifiedCount: cartUpdateResult.modifiedCount,
+    });
+
+    console.log("Order placed & cart cleared → Sending success response");
+
+    res.json({
+      success: true,
+      message: "Order placed successfully!",
+      orderId: order._id.toString(),
+    });
+
   } catch (err) {
     console.error("Place order error:", err);
-    res.status(500).json({ message: "Order failed" });
+    res.status(500).json({ message: "Failed to place order" });
   }
 });
 
-// SHOPKEEPER: All Orders
-app.get("/orders", authMiddleware("shopkeeper"), async (req, res) => {
+app.get("/orders", verifyToken("shopkeeper"), async (req, res) => {
   try {
+    const sellerId = req.user.id;
+
     const orders = await Order.aggregate([
       { $unwind: "$items" },
       {
-        $lookup: { from: "products", localField: "items.product_id", foreignField: "_id", as: "product" }
+        $lookup: {
+          from: "products",
+          localField: "items.product_id",
+          foreignField: "_id",
+          as: "product"
+        }
       },
       { $unwind: "$product" },
-      { $match: { "product.seller_id": new mongoose.Types.ObjectId(req.user.id) } },
+      { $match: { "product.seller_id": new mongoose.Types.ObjectId(sellerId) } },
       {
         $group: {
           _id: "$_id",
           order_id: { $first: "$_id" },
           customer_name: { $first: "$customer.name" },
+          customer_phone: { $first: "$customer.phone" },
+          customer_address: { $first: "$customer.address" },
           total_amount: { $first: "$total_amount" },
           status: { $first: "$status" },
           order_date: { $first: "$order_date" },
@@ -410,78 +427,151 @@ app.get("/orders", authMiddleware("shopkeeper"), async (req, res) => {
               product_name: "$product.name",
               product_image: "$product.image_url",
               price: "$items.price",
-              quantity: "$items.quantity",
-            },
-          },
-        },
+              quantity: "$items.quantity"
+            }
+          }
+        }
       },
-      { $sort: { order_date: -1 } },
+      { $sort: { order_date: -1 } }
     ]);
 
-    res.json(orders.map(o => ({ ...o, order_id: o.order_id.toString() })));
+    const formattedOrders = orders.map(o => ({ ...o, order_id: o.order_id.toString() }));
+
+    res.json(formattedOrders);
+
   } catch (err) {
-    console.error("Orders fetch error:", err);
-    res.status(500).json({ message: "Server error" });
+    console.error("Error fetching seller orders:", err.message);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
-// ORDER DETAIL
-app.get("/order/:orderId", authMiddleware(), async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.orderId).populate("items.product_id", "name image_url");
-    if (!order) return res.status(404).json({ message: "Order not found" });
+// FIXED: Removed invalid .populate("customer") — this was breaking everything
+app.get("/order/:orderId", verifyToken(), async (req, res) => {
+  console.log("GET ORDER DETAILS - Order ID:", req.params.orderId);
 
-    const transformed = {
+  try {
+    const order = await Order.findById(req.params.orderId)
+      .populate({
+        path: "items.product_id",
+        select: "name image_url"
+      });
+
+    if (!order) {
+      console.log("ORDER NOT FOUND");
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const transformedOrder = {
       id: order.id,
-      total_amount: order.total_amount,
-      status: order.status,
-      order_date: order.order_date,
-      customer_name: order.customer.name,
-      email: order.customer.email,
-      phone: order.customer.phone,
-      address: order.customer.address,
-      items: order.items.map(i => ({
-        product_name: i.product_id?.name || i.product_name,
-        product_image: i.product_id?.image_url || i.image_url,
-        price: i.price,
-        quantity: i.quantity,
-        subtotal: i.price * i.quantity,
-      })),
+      customer_name: order.customer.name || "N/A",
+      email: order.customer.email || "No email",
+      phone: order.customer.phone || "No phone",
+      address: order.customer.address || "Not provided",
+      total_amount: order.total_amount || 0,
+      status: order.status || "Pending",
+      order_date: order.order_date || order.createdAt,
+      items: order.items.map(item => ({
+        id: item._id.toString(),
+        product_name: item.product_id?.name || item.product_name || "Unnamed Product",
+
+        product_image: item.product_id?.image_url || item.image_url || "",
+        price: item.price || 0,
+        quantity: item.quantity || 1,
+        subtotal: (item.price || 0) * (item.quantity || 1)
+      }))
     };
 
-    res.json(transformed);
+    console.log("TRANSFORMED ORDER:", transformedOrder);
+    res.json(transformedOrder);
+
   } catch (err) {
+    console.error("GET ORDER ERROR:", err.message);
     res.status(500).json({ message: "Failed to fetch order" });
   }
 });
 
-// PROFILE
+app.put("/update-order/:orderId", verifyToken(), async (req, res) => {
+  console.log("UPDATE ORDER STATUS - Order ID:", req.params.orderId);
+  console.log("New Status:", req.body.status);
+  
+  try {
+    const result = await Order.updateOne(
+      { _id: req.params.orderId }, 
+      { $set: { status: req.body.status } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    console.log("ORDER STATUS UPDATED to:", req.body.status);
+    res.json({ success: true, message: `Order status updated to ${req.body.status}` });
+    
+  } catch (err) {
+    console.error("UPDATE ORDER ERROR:", err.message);
+    res.status(500).json({ message: "Failed to update order" });
+  }
+});
+
+app.delete("/delete-order/:orderId", verifyToken(), async (req, res) => {
+  console.log("DELETE ORDER - Order ID:", req.params.orderId);
+  
+  try {
+    const result = await Order.deleteOne({ _id: req.params.orderId });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    console.log("ORDER DELETED SUCCESSFULLY");
+    res.json({ success: true, message: "Order deleted successfully" });
+    
+  } catch (err) {
+    console.error("DELETE ORDER ERROR:", err.message);
+    res.status(500).json({ message: "Failed to delete order" });
+  }
+});
+
+app.delete("/order-item/:orderItemId", verifyToken(), async (req, res) => {
+  console.log("DELETE ORDER ITEM - Item ID:", req.params.orderItemId);
+  
+  try {
+    const result = await Order.updateOne(
+      { "items._id": req.params.orderItemId },
+      { $pull: { items: { _id: req.params.orderItemId } } }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(404).json({ message: "Order item not found" });
+    }
+
+    console.log("ORDER ITEM DELETED");
+    res.json({ success: true, message: "Item removed from order" });
+    
+  } catch (err) {
+    console.error("DELETE ORDER ITEM ERROR:", err.message);
+    res.status(500).json({ message: "Failed to remove item" });
+  }
+});
+
 app.get("/profile/:id", async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id).select("-password");
-    user ? res.json(user) : res.status(404).json({ message: "User not found" });
-  } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
+  const user = await User.findById(req.params.id);
+  if (!user) return res.status(404).json({ message: "User not found" });
+  res.json(user);
 });
 
-app.put("/profile/:id", authMiddleware(), async (req, res) => {
-  if (req.params.id !== req.user.id) return res.status(403).json({ message: "Access denied" });
-  await User.updateOne({ _id: req.user.id }, req.body);
-  res.json({ message: "Profile updated" });
+app.put("/profile/:id", async (req, res) => {
+  await User.updateOne({ _id: req.params.id }, req.body);
+  res.json({ message: "Profile updated successfully!" });
 });
 
-// UPDATE ORDER STATUS
-app.put("/update-order/:orderId", authMiddleware(), async (req, res) => {
-  try {
-    const result = await Order.updateOne({ _id: req.params.orderId }, { status: req.body.status });
-    if (result.matchedCount === 0) return res.status(404).json({ message: "Order not found" });
-    console.log("Order status updated →", req.params.orderId, "to", req.body.status);
-    res.json({ success: true, message: "Status updated" });
-  } catch (err) {
-    res.status(500).json({ message: "Update failed" });
-  }
-});
+app.get("/", (req, res) => res.send("E-Commerce MongoDB Server Running..."));
+ if(!process.env.VERCEL && !process.env.NETLIFY) {
+  app.listen(Port, () => {
+    console.log(`🚀 Server Live on Port ${serverPort}`);
+    console.log(`🌐 MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+  });
+}
 
-// ==================== EXPORT FOR VERCEL ====================
-module.exports = app;
+// Export for serverless platforms (Vercel, Netlify Functions)
+module.exports = app

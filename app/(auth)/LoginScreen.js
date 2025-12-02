@@ -20,7 +20,7 @@ export default function LoginScreen({ navigation }) {
     }
     try {
       console.log("Sending login request to backend...");
-      const response = await fetch("https://ecommerce-sage-kappa-45.vercel.app", {
+      const response = await fetch("https://ecommerce-sage-kappa-45.vercel.app/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
