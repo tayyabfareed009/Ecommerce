@@ -1,4 +1,4 @@
-// server.js - WITH CORS FIX
+// server.js - COMPLETE CORS FIX
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
@@ -7,41 +7,28 @@ const jwt = require("jsonwebtoken");
 
 const app = express();
 
-// ==================== CORS CONFIGURATION ====================
-const allowedOrigins = [
-  'https://ecommerce-xm2u.vercel.app',  // Your frontend
-  'http://localhost:19006',              // Expo web
-  'http://localhost:8081',               // iOS simulator
-  'http://localhost:8082',               // Android emulator
-  'exp://*',                             // Expo app
-];
+// ==================== CORS HANDLING ====================
+// Handle OPTIONS preflight FIRST
+app.options('*', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Origin, Accept');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
 
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, postman)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost')) {
-      callback(null, true);
-    } else {
-      console.log('Blocked by CORS:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+// Regular CORS middleware
+app.use(cors({
+  origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-};
+  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept']
+}));
 
-app.use(cors(corsOptions));
-
-// Handle preflight requests
-app.options('*', cors(corsOptions));
-
-// ==================== OTHER MIDDLEWARE ====================
+// ==================== MIDDLEWARE ====================
 app.use(express.json());
 
-// ==================== DATABASE CONNECTION ====================
+// ==================== DATABASE ====================
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://tayyab:12345@cluster0.7ehzawj.mongodb.net/ecommerce?retryWrites=true&w=majority";
 
 mongoose.connect(MONGO_URI, {
@@ -49,42 +36,67 @@ mongoose.connect(MONGO_URI, {
   useUnifiedTopology: true,
 })
 .then(() => console.log("✅ MongoDB Connected"))
-.catch(err => console.log("⚠️ MongoDB Warning:", err.message));
+.catch(err => console.log("⚠️ MongoDB:", err.message));
+
+// ==================== MODELS ====================
+const userSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String,
+  phone: String,
+  address: String,
+  role: { type: String, default: "customer" }
+});
+
+const User = mongoose.model("User", userSchema);
 
 // ==================== ROUTES ====================
+
+// Root - ALWAYS returns JSON
 app.get("/", (req, res) => {
   res.json({ 
     success: true,
     message: "E-Commerce API",
-    cors: "CORS enabled for frontend",
-    frontend: "https://ecommerce-xm2u.vercel.app"
+    endpoints: {
+      "GET /": "This info",
+      "POST /login": "Login with {email, password}",
+      "POST /signup": "Create account",
+      "GET /test": "CORS test"
+    }
   });
 });
 
-// Login endpoint
+// Test endpoint - ALWAYS returns JSON
+app.get("/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "CORS test successful",
+    origin: req.headers.origin || "No origin",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// LOGIN - With proper error handling
 app.post("/login", async (req, res) => {
   try {
+    console.log("Login attempt:", req.body);
+    
     const { email, password } = req.body;
     
+    // Validate input
     if (!email || !password) {
       return res.status(400).json({ 
         success: false, 
-        message: "Email and password required" 
+        message: "Email and password are required" 
       });
     }
     
-    // For testing - create a test user if doesn't exist
-    const User = mongoose.model('User', new mongoose.Schema({
-      name: String,
-      email: String,
-      password: String,
-      role: String
-    }));
-    
+    // Check if user exists
     let user = await User.findOne({ email });
     
     // Create test user if doesn't exist
     if (!user) {
+      console.log("Creating test user...");
       const hashedPassword = await bcrypt.hash("test123", 10);
       user = await User.create({
         name: "Test User",
@@ -92,30 +104,99 @@ app.post("/login", async (req, res) => {
         password: hashedPassword,
         role: "customer"
       });
-      console.log("Test user created");
+      console.log("Test user created:", user.email);
     }
     
-    // Check password
-    const validPassword = await bcrypt.compare(password, user.password);
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, user.password);
     
-    if (!validPassword) {
-      return res.status(400).json({ 
+    if (!isValidPassword) {
+      return res.status(401).json({ 
         success: false, 
         message: "Invalid password" 
       });
     }
     
+    // Create JWT token
+    const token = jwt.sign(
+      { 
+        id: user._id, 
+        email: user.email, 
+        role: user.role 
+      },
+      "secretkey",
+      { expiresIn: "24h" }
+    );
+    
+    // Send success response
+    res.json({
+      success: true,
+      message: "Login successful",
+      token: token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone || "",
+        address: user.address || ""
+      }
+    });
+    
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error: " + error.message 
+    });
+  }
+});
+
+// SIGNUP
+app.post("/signup", async (req, res) => {
+  try {
+    const { name, email, password, phone, address, role } = req.body;
+    
+    if (!name || !email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Name, email and password are required" 
+      });
+    }
+    
+    // Check if user exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Email already registered" 
+      });
+    }
+    
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Create user
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPassword,
+      phone: phone || "",
+      address: address || "",
+      role: role || "customer"
+    });
+    
     // Create token
     const token = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       "secretkey",
-      { expiresIn: "1d" }
+      { expiresIn: "24h" }
     );
     
-    res.json({
+    res.status(201).json({
       success: true,
-      message: "Login successful",
-      token,
+      message: "Account created successfully",
+      token: token,
       user: {
         id: user._id,
         name: user.name,
@@ -125,31 +206,40 @@ app.post("/login", async (req, res) => {
     });
     
   } catch (error) {
-    console.error("Login error:", error);
+    console.error("Signup error:", error);
     res.status(500).json({ 
       success: false, 
-      message: "Server error" 
+      message: "Server error: " + error.message 
     });
   }
 });
 
-// Test CORS endpoint
-app.get("/test-cors", (req, res) => {
-  res.json({
-    success: true,
-    message: "CORS test successful",
-    origin: req.headers.origin || "No origin header",
-    allowed: true
+// ==================== ERROR HANDLING ====================
+// Catch 404 and ALWAYS return JSON
+app.use((req, res) => {
+  res.status(404).json({ 
+    success: false, 
+    message: "Route not found: " + req.originalUrl 
+  });
+});
+
+// Global error handler - ALWAYS returns JSON
+app.use((err, req, res, next) => {
+  console.error("Server error:", err);
+  res.status(500).json({ 
+    success: false, 
+    message: "Internal server error",
+    error: process.env.NODE_ENV === 'production' ? undefined : err.message
   });
 });
 
 // ==================== EXPORT ====================
 module.exports = app;
 
+// Local development
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`🌐 CORS enabled for: https://ecommerce-xm2u.vercel.app`);
   });
 }
